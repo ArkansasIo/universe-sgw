@@ -211,7 +211,7 @@ export default function AdminLogin() {
       />
 
       {/* ── Back link ────────────────────────────────────────── */}
-      <Link href="/" className="absolute top-4 left-4 flex items-center gap-1.5 text-xs text-green-900 hover:text-green-500 transition-colors z-20">
+      <Link href="/" className="absolute top-4 left-4 flex items-center gap-1.5 text-xs text-green-500 hover:text-green-300 transition-colors z-20">
         <ArrowLeft className="w-3 h-3" />
         Back to game
       </Link>
@@ -231,9 +231,9 @@ export default function AdminLogin() {
             <div className="w-2 h-2 rounded-full bg-red-500/70" />
             <div className="w-2 h-2 rounded-full bg-yellow-500/70" />
             <div className="w-2 h-2 rounded-full bg-green-500/70" />
-            <span className="ml-2 text-green-700 text-[10px] tracking-widest uppercase">admin-clearance-v2.0</span>
+            <span className="ml-2 text-green-500 text-[10px] tracking-widest uppercase">admin-clearance-v2.0</span>
           </div>
-          <span className="text-green-900 text-[10px]">{new Date().toISOString().slice(0, 10)}</span>
+          <span className="text-green-400 text-[10px]">{new Date().toISOString().slice(0, 10)}</span>
         </div>
 
         <div className="px-6 pt-5 pb-6 space-y-5">
@@ -251,7 +251,7 @@ export default function AdminLogin() {
             <h1 className="text-green-300 text-sm tracking-[0.25em] uppercase font-bold admin-login-glow">
               Stellar Dominion
             </h1>
-            <p className="text-green-700 text-[10px] tracking-widest uppercase">
+            <p className="text-green-500 text-[10px] tracking-widest uppercase">
               Admin Clearance System · Level {step}/3
             </p>
           </div>
@@ -275,10 +275,10 @@ export default function AdminLogin() {
                     >
                       {done
                         ? <CheckCircle2 className="w-4 h-4 text-green-400" />
-                        : <Icon className={`w-3.5 h-3.5 ${current ? "text-green-300" : "text-green-900"}`} />
+                        : <Icon className={`w-3.5 h-3.5 ${current ? "text-green-300" : "text-green-600"}`} />
                       }
                     </div>
-                    <span className={`text-[9px] tracking-widest uppercase ${current ? "text-green-400" : done ? "text-green-600" : "text-green-900"}`}>
+                    <span className={`text-[9px] tracking-widest uppercase ${current ? "text-green-400" : done ? "text-green-600" : "text-green-500"}`}>
                       {s.label}
                     </span>
                   </div>
@@ -332,9 +332,9 @@ export default function AdminLogin() {
 
                 {/* Prompt label */}
                 <div className="space-y-0.5">
-                  <div className="flex items-center gap-2 text-[10px] text-green-600 uppercase tracking-widest">
+                  <div className="flex items-center gap-2 text-[10px] text-green-500 uppercase tracking-widest">
                     <span>STEP {step}/3</span>
-                    <span className="text-green-900">·</span>
+                    <span className="text-green-700">·</span>
                     <span>{STEP_META[step - 1].desc}</span>
                   </div>
                   <div
@@ -349,7 +349,7 @@ export default function AdminLogin() {
                     className="flex items-center justify-between px-3 py-1.5 text-xs"
                     style={{ border: "1px solid rgba(0,200,80,.12)", background: "rgba(0,200,80,.03)" }}
                   >
-                    <span className="text-green-700">OPERATOR</span>
+                    <span className="text-green-500">OPERATOR</span>
                     <span className="text-green-400">{identifier}</span>
                   </div>
                 )}
@@ -367,9 +367,9 @@ export default function AdminLogin() {
                       boxShadow: status === "error" ? "0 0 8px rgba(239,68,68,.1)" : "0 0 0 0 transparent",
                     }}
                   >
-                    {step === 1 && <User     className="w-3.5 h-3.5 text-green-700 shrink-0" />}
-                    {step === 2 && <Lock     className="w-3.5 h-3.5 text-green-700 shrink-0" />}
-                    {step === 3 && <KeyRound className="w-3.5 h-3.5 text-green-700 shrink-0" />}
+                    {step === 1 && <User     className="w-3.5 h-3.5 text-green-500 shrink-0" />}
+                    {step === 2 && <Lock     className="w-3.5 h-3.5 text-green-500 shrink-0" />}
+                    {step === 3 && <KeyRound className="w-3.5 h-3.5 text-green-500 shrink-0" />}
 
                     <input
                       ref={inputRef}
@@ -381,7 +381,7 @@ export default function AdminLogin() {
                       value={currentValue}
                       onChange={(e) => { setCurrentValue(e.target.value); setError(""); setStatus("idle"); }}
                       onKeyDown={handleKeyDown}
-                      className="flex-1 bg-transparent text-green-300 text-sm py-2.5 outline-none placeholder-green-900 tracking-wider"
+                      className="flex-1 bg-transparent text-green-200 text-sm py-2.5 outline-none placeholder-green-600 tracking-wider"
                       placeholder={step === 1 ? "username or email" : step === 2 ? "••••••••••••" : step === 3 ? "ACCESS-CODE" : ""}
                       autoComplete={step === 1 ? "username" : step === 2 ? "current-password" : "off"}
                       spellCheck={false}
@@ -391,7 +391,7 @@ export default function AdminLogin() {
                       <button
                         type="button"
                         onClick={() => step === 2 ? setShowPass((v) => !v) : setShowCode((v) => !v)}
-                        className="text-green-800 hover:text-green-500 transition-colors"
+                        className="text-green-500 hover:text-green-300 transition-colors"
                       >
                         {(step === 2 ? showPass : showCode)
                           ? <EyeOff className="w-3.5 h-3.5" />
@@ -429,7 +429,7 @@ export default function AdminLogin() {
                   {step > 1 && (
                     <button
                       onClick={() => { setStep((s) => (s - 1) as Step); setError(""); setStatus("idle"); }}
-                      className="px-3 py-2 text-xs text-green-700 hover:text-green-400 transition-colors flex items-center gap-1"
+                      className="px-3 py-2 text-xs text-green-500 hover:text-green-300 transition-colors flex items-center gap-1"
                       style={{ border: "1px solid rgba(0,200,80,.15)" }}
                     >
                       <ArrowLeft className="w-3 h-3" /> Back
@@ -447,7 +447,7 @@ export default function AdminLogin() {
                       background: canProceed() && status !== "checking"
                         ? "rgba(0,255,80,.08)"
                         : "transparent",
-                      color: canProceed() && status !== "checking" ? "#4ade80" : "#166534",
+                      color: canProceed() && status !== "checking" ? "#86efac" : "#9ca3af",
                       boxShadow: canProceed() && status !== "checking"
                         ? "0 0 12px rgba(0,255,80,.1)"
                         : "none",
@@ -469,25 +469,25 @@ export default function AdminLogin() {
                     className="space-y-2 px-3 py-2 text-[10px]"
                     style={{ border: "1px solid rgba(251,191,36,.2)", background: "rgba(251,191,36,.04)" }}
                   >
-                    <div className="text-yellow-600 uppercase tracking-widest">⚡ Dev Quick-Fill</div>
+                    <div className="text-yellow-400 uppercase tracking-widest">⚡ Dev Quick-Fill</div>
                     <div className="flex gap-2 flex-wrap">
                       <button
                         onClick={() => devFill("admin", "Admin@12345", "STELLAR-ADMIN")}
-                        className="px-2 py-1 text-[10px] text-yellow-400 hover:text-yellow-200 transition-colors"
+                        className="px-2 py-1 text-[10px] text-yellow-300 hover:text-yellow-100 transition-colors"
                         style={{ border: "1px solid rgba(251,191,36,.25)" }}
                       >
                         admin / Admin@12345
                       </button>
                       <button
                         onClick={() => devFill("devadmin", "dev-password", "STELLAR-ADMIN")}
-                        className="px-2 py-1 text-[10px] text-yellow-400 hover:text-yellow-200 transition-colors"
+                        className="px-2 py-1 text-[10px] text-yellow-300 hover:text-yellow-100 transition-colors"
                         style={{ border: "1px solid rgba(251,191,36,.25)" }}
                       >
                         devadmin / dev-password
                       </button>
                     </div>
-                    <div className="text-yellow-800">
-                      Access code: <span className="text-yellow-600 font-bold">STELLAR-ADMIN</span>
+                    <div className="text-yellow-300">
+                      Access code: <span className="text-yellow-200 font-bold">STELLAR-ADMIN</span>
                     </div>
                   </div>
                 )}
@@ -503,12 +503,12 @@ export default function AdminLogin() {
             {status !== "success" && (
               <button
                 onClick={resetForm}
-                className="w-full text-center text-[10px] text-green-900 hover:text-green-600 transition-colors"
+                className="w-full text-center text-[10px] text-green-500 hover:text-green-300 transition-colors"
               >
                 Reset all fields
               </button>
             )}
-            <p className="text-center text-[10px] text-green-900">
+            <p className="text-center text-[10px] text-green-500">
               All admin sessions are fully audited and logged
             </p>
           </div>
@@ -517,14 +517,14 @@ export default function AdminLogin() {
 
       {/* ── Bottom status bar ────────────────────────────────── */}
       <div className="absolute bottom-3 left-0 right-0 flex justify-center">
-        <div className="flex items-center gap-4 text-[10px] text-green-900 tracking-widest">
+        <div className="flex items-center gap-4 text-[10px] text-green-500 tracking-widest">
           <span>STELLAR-DOMINION</span>
-          <span className="text-green-950">·</span>
+          <span className="text-green-700">·</span>
           <span>ADMIN-AUTH-PROTOCOL</span>
-          <span className="text-green-950">·</span>
-          <span className="text-green-700">SECURE CHANNEL</span>
-          <span className="text-green-950">·</span>
-          <span className="admin-login-blink text-green-600">●</span>
+          <span className="text-green-700">·</span>
+          <span className="text-green-300">SECURE CHANNEL</span>
+          <span className="text-green-700">·</span>
+          <span className="admin-login-blink text-green-400">●</span>
         </div>
       </div>
     </div>

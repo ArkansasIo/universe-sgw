@@ -6,12 +6,29 @@ import { logger } from "./logger";
 import crypto from "crypto";
 import { db } from "./db";
 import { adminUsers, users, type User } from "../shared/schema";
-import { eq, ilike, or } from "drizzle-orm";
+import { eq, ilike, or, sql } from "drizzle-orm";
 import { getRolePermissions, normalizeAdminRole } from "./adminPermissions";
 import { requireAdminIp, logAdminActivity } from "./middleware/adminIpCheck";
 
 const NON_ADMIN_USERNAMES = new Set(["player1", "player2", "player3"]);
 const NON_ADMIN_EMAIL_SUFFIX = "@universe-empire-domions.game";
+let adminUsersTableExistsCache: boolean | null = null;
+
+async function hasAdminUsersTable(): Promise<boolean> {
+  if (adminUsersTableExistsCache !== null) {
+    return adminUsersTableExistsCache;
+  }
+
+  try {
+    const result = await db.execute(sql`SELECT to_regclass('public.admin_users') AS table_name`);
+    const row = (result.rows?.[0] || {}) as Record<string, unknown>;
+    adminUsersTableExistsCache = Boolean(row.table_name);
+  } catch {
+    adminUsersTableExistsCache = false;
+  }
+
+  return adminUsersTableExistsCache;
+}
 
 function isProtectedNonAdminAccount(user: Pick<User, "username" | "email"> | null | undefined) {
   const username = String(user?.username || "").trim().toLowerCase();
@@ -38,6 +55,11 @@ function isDevAuthBypassEnabled() {
 }
 
 async function ensureDevBypassUser() {
+  if (!(await hasAdminUsersTable())) {
+    logger.warn("AUTH", "Dev bypass setup skipped: admin_users table is missing");
+    return null;
+  }
+
   const username = (process.env.DEV_AUTH_USERNAME || "devadmin").trim();
   const email = (process.env.DEV_AUTH_EMAIL || "devadmin@universee.local").trim();
   const firstName = (process.env.DEV_AUTH_FIRST_NAME || "Dev Admin").trim();
@@ -177,6 +199,11 @@ async function resolveAdminStatus(userId: string): Promise<{ isAdmin: boolean; a
 
 async function ensureBootstrapAdminAccount() {
   try {
+    if (!(await hasAdminUsersTable())) {
+      logger.warn("AUTH", "Bootstrap admin account skipped: admin_users table is missing");
+      return;
+    }
+
     const bootstrapUsername = (process.env.ADMIN_BOOTSTRAP_USERNAME || "admin").trim();
     const bootstrapEmail = (process.env.ADMIN_BOOTSTRAP_EMAIL || "admin@universee.game").trim();
     const bootstrapPassword = process.env.ADMIN_BOOTSTRAP_PASSWORD || "Admin@12345";
@@ -227,6 +254,11 @@ async function ensureNamedAdminAccount(options: {
   role: string;
   label: string;
 }) {
+  if (!(await hasAdminUsersTable())) {
+    logger.warn("AUTH", `${options.label} skipped: admin_users table is missing`);
+    return null;
+  }
+
   const username = options.username.trim();
   const email = options.email.trim();
   const firstName = options.firstName.trim();

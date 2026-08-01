@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { config } from "dotenv";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,6 +18,28 @@ const basePort = Number.isFinite(preferredPort) && preferredPort > 0 ? preferred
 const pgDataDir = resolve(projectRoot, ".postgres_data");
 const pgLogFile = resolve(pgDataDir, "server.log");
 
+function hasCommand(command: string): boolean {
+  const check = spawnSync("sh", ["-lc", `command -v ${command}`], {
+    stdio: "ignore",
+    shell: false,
+  });
+
+  return check.status === 0;
+}
+
+function canBootstrapLocalPostgres(): boolean {
+  const required = ["pg_isready", "pg_ctl", "psql"];
+  const missing = required.filter((cmd) => !hasCommand(cmd));
+  if (missing.length > 0) {
+    console.warn(
+      `⚠️  Skipping local PostgreSQL bootstrap. Missing tools: ${missing.join(", ")}.` +
+        " Start Postgres manually or set DATABASE_URL.",
+    );
+    return false;
+  }
+  return true;
+}
+
 function isPortFree(port: number): Promise<boolean> {
   return new Promise((resolvePort) => {
     const server = net.createServer();
@@ -32,6 +54,7 @@ function isPortFree(port: number): Promise<boolean> {
 async function isPgReady(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const check = spawn("pg_isready", ["-h", "localhost", "-p", String(port)], { stdio: "ignore" });
+    check.on("error", () => resolve(false));
     check.on("exit", (code) => resolve(code === 0));
   });
 }
@@ -156,10 +179,17 @@ async function startDev() {
   // Start local PostgreSQL if DATABASE_URL points to Neon or not set
   const dbUrl = process.env.DATABASE_URL || "";
   if (!dbUrl || dbUrl.includes("neon.tech")) {
-    await startLocalPostgres();
-    await createDatabaseIfNeeded();
-    const pgUser = process.env.USER || process.env.USERNAME || "runner";
-process.env.DATABASE_URL = `postgresql://${pgUser}@localhost:15432/stellar_dominion`;
+    if (canBootstrapLocalPostgres()) {
+      await startLocalPostgres();
+      await createDatabaseIfNeeded();
+      const pgUser = process.env.USER || process.env.USERNAME || "runner";
+      process.env.DATABASE_URL = `postgresql://${pgUser}@localhost:15432/stellar_dominion`;
+    } else if (!dbUrl) {
+      const dockerFallbackUrl =
+        process.env.LOCAL_DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/stellar_dominion";
+      process.env.DATABASE_URL = dockerFallbackUrl;
+      console.log(`ℹ️  Using fallback DATABASE_URL: ${dockerFallbackUrl}`);
+    }
   }
 
   const selectedPort = await findAvailablePort(basePort);
