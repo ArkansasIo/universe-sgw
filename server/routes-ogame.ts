@@ -13,6 +13,22 @@ import {
 
 const router = Router();
 
+function normalizePositiveInt(value: unknown, fallback = 1): number {
+  const parsed = Math.floor(Number(value));
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(1, parsed);
+}
+
+function normalizeNumericMap(rawValue: unknown): Record<string, number> {
+  if (!rawValue || typeof rawValue !== "object") return {};
+  const normalized: Record<string, number> = {};
+  for (const [key, value] of Object.entries(rawValue as Record<string, unknown>)) {
+    const count = Math.max(0, Math.floor(Number(value) || 0));
+    if (count > 0) normalized[key] = count;
+  }
+  return normalized;
+}
+
 router.post("/seed", async (_req, res) => {
   try {
     const result = await seedOgameCatalogIfNeeded();
@@ -77,8 +93,8 @@ router.get("/entries/:entryId", async (req, res) => {
 router.post("/simulate/cost", async (req, res) => {
   try {
     const entryId = String(req.body?.entryId || "");
-    const level = Number(req.body?.level || 1);
-    const quantity = Number(req.body?.quantity || 1);
+    const level = normalizePositiveInt(req.body?.level, 1);
+    const quantity = normalizePositiveInt(req.body?.quantity, 1);
 
     if (!entryId) {
       return res.status(400).json({ success: false, error: "entryId is required" });
@@ -95,8 +111,8 @@ router.post("/simulate/cost", async (req, res) => {
       success: true,
       data: {
         entryId,
-        level: Math.max(1, Math.floor(level)),
-        quantity: Math.max(1, Math.floor(quantity)),
+        level,
+        quantity,
         cost,
       },
     });
@@ -107,8 +123,12 @@ router.post("/simulate/cost", async (req, res) => {
 
 router.post("/simulate/production", (req, res) => {
   try {
-    const buildings = (req.body?.buildings || {}) as Record<string, number>;
-    const research = (req.body?.research || {}) as Record<string, number>;
+    const buildings = normalizeNumericMap(req.body?.buildings);
+    const research = normalizeNumericMap(req.body?.research);
+
+    if (Object.keys(buildings).length === 0 && Object.keys(research).length === 0) {
+      return res.status(400).json({ success: false, error: "buildings or research input is required" });
+    }
 
     const production = calculateOgameProduction(buildings, research);
 
@@ -120,8 +140,12 @@ router.post("/simulate/production", (req, res) => {
 
 router.post("/simulate/combat", (req, res) => {
   try {
-    const fleet = (req.body?.fleet || {}) as Record<string, number>;
-    const research = (req.body?.research || {}) as Record<string, number>;
+    const fleet = normalizeNumericMap(req.body?.fleet);
+    const research = normalizeNumericMap(req.body?.research);
+
+    if (Object.keys(fleet).length === 0) {
+      return res.status(400).json({ success: false, error: "fleet input is required" });
+    }
 
     const combat = calculateOgameCombatRating(fleet, research);
 
@@ -133,7 +157,12 @@ router.post("/simulate/combat", (req, res) => {
 
 router.post("/simulate/unlocks", (req, res) => {
   try {
-    const levels = (req.body?.levels || {}) as Record<string, number>;
+    const levels = normalizeNumericMap(req.body?.levels);
+
+    if (Object.keys(levels).length === 0) {
+      return res.status(400).json({ success: false, error: "levels input is required" });
+    }
+
     const unlocks = getUnlockState(levels);
 
     res.json({ success: true, data: unlocks });

@@ -1,4 +1,4 @@
-import { and, asc, eq, ilike } from "drizzle-orm";
+import { and, asc, eq, ilike, sql } from "drizzle-orm";
 import { db } from "../db";
 import {
   ogameCatalogCategories,
@@ -37,11 +37,39 @@ const normalizeCost = (raw: unknown): OgameCatalogCost => {
 const isScalableByLevel = (entryType: string): boolean =>
   entryType === "building" || entryType === "research" || entryType === "moon";
 
+let catalogTablesReadyCache: boolean | null = null;
+
+async function hasCatalogTables(): Promise<boolean> {
+  if (catalogTablesReadyCache !== null) return catalogTablesReadyCache;
+
+  try {
+    const result = await db.execute(sql`
+      SELECT
+        to_regclass('public.ogame_catalog_categories') AS categories_table,
+        to_regclass('public.ogame_catalog_entries') AS entries_table
+    `);
+    const row = (result.rows?.[0] || {}) as Record<string, unknown>;
+    catalogTablesReadyCache = Boolean(row.categories_table) && Boolean(row.entries_table);
+  } catch {
+    catalogTablesReadyCache = false;
+  }
+
+  return catalogTablesReadyCache;
+}
+
 export async function seedOgameCatalogIfNeeded(): Promise<{
   seeded: boolean;
   categoryCount: number;
   entryCount: number;
 }> {
+  if (!(await hasCatalogTables())) {
+    return {
+      seeded: false,
+      categoryCount: 0,
+      entryCount: 0,
+    };
+  }
+
   const existing = await db
     .select({ id: ogameCatalogEntries.id })
     .from(ogameCatalogEntries)
@@ -86,6 +114,7 @@ export async function seedOgameCatalogIfNeeded(): Promise<{
 
 export async function getOgameCategories(): Promise<OgameCatalogCategory[]> {
   await seedOgameCatalogIfNeeded();
+  if (!(await hasCatalogTables())) return [];
   return db
     .select()
     .from(ogameCatalogCategories)
@@ -99,6 +128,7 @@ export async function getOgameEntries(filters?: {
   moonOnly?: boolean;
 }): Promise<OgameCatalogEntry[]> {
   await seedOgameCatalogIfNeeded();
+  if (!(await hasCatalogTables())) return [];
 
   const conditions = [];
 
@@ -142,6 +172,7 @@ export async function getOgameEntries(filters?: {
 
 export async function getOgameEntryById(entryId: string): Promise<OgameCatalogEntry | undefined> {
   await seedOgameCatalogIfNeeded();
+  if (!(await hasCatalogTables())) return undefined;
 
   const [entry] = await db
     .select()

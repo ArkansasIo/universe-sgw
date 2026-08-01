@@ -4,13 +4,11 @@
 import { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const PROJECT_ROOT = process.cwd();
 
 const execAsync = promisify(exec);
 
@@ -54,7 +52,7 @@ export class UpdateManager {
 
   private constructor() {
     this.currentVersion = this.loadVersion();
-    this.updatePath = path.join(__dirname, '..', 'updates');
+    this.updatePath = path.join(PROJECT_ROOT, 'updates');
     this.manifestPath = path.join(this.updatePath, 'manifest.json');
     this.clientVersions = new Map();
     this.ensureUpdateDirectory();
@@ -70,7 +68,7 @@ export class UpdateManager {
   // Load current version from package.json
   private loadVersion(): Version {
     try {
-      const packagePath = path.join(__dirname, '..', 'package.json');
+      const packagePath = path.join(PROJECT_ROOT, 'package.json');
       const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf-8'));
       const [major, minor, patch] = packageJson.version.split('.').map(Number);
       return { major, minor, patch, build: packageJson.build };
@@ -160,7 +158,7 @@ export class UpdateManager {
   // Scan for changed files
   private async scanChangedFiles(): Promise<UpdateFile[]> {
     const files: UpdateFile[] = [];
-    const clientDir = path.join(__dirname, '..', 'client', 'dist');
+    const clientDir = path.join(PROJECT_ROOT, 'client', 'dist');
     
     if (fs.existsSync(clientDir)) {
       const scanDir = (dir: string, baseDir: string = '') => {
@@ -214,7 +212,7 @@ export class UpdateManager {
     }
 
     // Copy changed files to patch directory
-    const clientDir = path.join(__dirname, '..', 'client', 'dist');
+    const clientDir = path.join(PROJECT_ROOT, 'client', 'dist');
     
     for (const file of manifest.files) {
       const sourcePath = path.join(clientDir, file.path);
@@ -242,7 +240,7 @@ export class UpdateManager {
       const manifestPath = path.join(patchPath, 'manifest.json');
       const manifest: UpdateManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
       
-      const clientDir = path.join(__dirname, '..', 'client', 'dist');
+      const clientDir = path.join(PROJECT_ROOT, 'client', 'dist');
       
       for (const file of manifest.files) {
         const sourcePath = path.join(patchPath, file.path);

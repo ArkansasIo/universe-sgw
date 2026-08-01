@@ -58,6 +58,65 @@ function getBattleProfile(mode: BattleMode) {
   return BATTLE_SYSTEM_PROFILES.find((profile) => profile.mode === mode) || BATTLE_SYSTEM_PROFILES[0];
 }
 
+function normalizePositiveUnitMap(rawUnits: unknown): Record<string, number> {
+  if (!rawUnits || typeof rawUnits !== "object") return {};
+  const normalized: Record<string, number> = {};
+  for (const [unitType, rawValue] of Object.entries(rawUnits as Record<string, unknown>)) {
+    const count = Math.max(0, Math.floor(Number(rawValue) || 0));
+    if (count > 0) normalized[unitType] = count;
+  }
+  return normalized;
+}
+
+function applyBattleReturn(
+  currentUnits: Record<string, number>,
+  sentUnits: Record<string, number>,
+  survivingSentUnits: Record<string, number>
+): Record<string, number> {
+  const updated = { ...currentUnits };
+  const unitTypes = new Set([
+    ...Object.keys(currentUnits || {}),
+    ...Object.keys(sentUnits || {}),
+    ...Object.keys(survivingSentUnits || {}),
+  ]);
+
+  for (const unitType of unitTypes) {
+    const current = Number(updated[unitType] || 0);
+    const sent = Number(sentUnits[unitType] || 0);
+    const survived = Number(survivingSentUnits[unitType] || 0);
+    updated[unitType] = Math.max(0, current - sent + survived);
+  }
+
+  return updated;
+}
+
+function normalizePositiveInt(value: unknown): number {
+  const parsed = Math.floor(Number(value));
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, parsed);
+}
+
+function readCombatDeployment(travelState: unknown): {
+  rawTravelState: Record<string, unknown>;
+  garrison: Record<string, number>;
+  activeDefenses: Record<string, number>;
+} {
+  const rawTravelState =
+    travelState && typeof travelState === "object"
+      ? { ...(travelState as Record<string, unknown>) }
+      : { activeRoute: null, discoveredWormholes: [] };
+
+  const combatStateRaw =
+    rawTravelState.combat && typeof rawTravelState.combat === "object"
+      ? (rawTravelState.combat as Record<string, unknown>)
+      : {};
+
+  const garrison = normalizePositiveUnitMap(combatStateRaw.garrison);
+  const activeDefenses = normalizePositiveUnitMap(combatStateRaw.activeDefenses);
+
+  return { rawTravelState, garrison, activeDefenses };
+}
+
 export function registerCombatRoutes(app: Router) {
   /**
    * GET /api/combat/stats
@@ -153,9 +212,18 @@ export function registerCombatRoutes(app: Router) {
       const userId = (req as any).session?.userId;
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
 
-      const { targetId, units: attackUnits } = req.body;
+      const { targetId, units: rawAttackUnits } = req.body;
+      const attackUnits = normalizePositiveUnitMap(rawAttackUnits);
       if (!targetId || !attackUnits) {
         return res.status(400).json({ error: "Missing required fields" });
+      }
+
+      if (targetId === userId) {
+        return res.status(400).json({ error: "Cannot attack yourself" });
+      }
+
+      if (Object.keys(attackUnits).length === 0) {
+        return res.status(400).json({ error: "At least one attacking unit is required" });
       }
 
       // Get attacker state
@@ -184,7 +252,7 @@ export function registerCombatRoutes(app: Router) {
       const defender = defenderResult[0];
 
       // Check attacker has units
-      const attackerUnits = attacker.units as any || {};
+      const attackerUnits = toUnitCountMap(attacker.units as Record<string, any>);
       for (const [unitType, count] of Object.entries(attackUnits)) {
         if ((attackerUnits[unitType] || 0) < (count as number)) {
           return res
@@ -232,10 +300,8 @@ export function registerCombatRoutes(app: Router) {
         const plunder = calculateVictoryResources(defenderResources, "attacker");
 
         // Update attacker units
-        const newAttackerUnits = { ...attackerUnits };
-        for (const casualty of Object.entries(battleResult.attackerUnits)) {
-          newAttackerUnits[(casualty as any)[0]] -= ((casualty as any)[1].count || 0);
-        }
+        const newAttackerUnits = applyBattleReturn(attackerUnits, attackUnits as Record<string, number>, attackerUnitsAfterBattle);
+        const newDefenderUnits = defenderUnitsAfterBattle;
 
         // Update attacker resources
         const newAttackerResources = {
@@ -276,6 +342,7 @@ export function registerCombatRoutes(app: Router) {
         await db
           .update(playerStates)
           .set({
+            units: newDefenderUnits,
             resources: newDefenderResources,
             updatedAt: new Date(),
           })
@@ -316,16 +383,23 @@ export function registerCombatRoutes(app: Router) {
           activeEffects: COMBAT_EFFECT_LIBRARY.slice(0, 4),
           plunder,
           newAttackerUnits,
+          newDefenderUnits,
           newAttackerResources,
         });
       } else {
         // Defender wins - attacker units destroyed
-        const newAttackerUnits = { ...attackerUnits };
-        for (const casualty of Object.entries(battleResult.attackerUnits)) {
-          newAttackerUnits[(casualty as any)[0]] -= ((casualty as any)[1].count || 0);
-        }
+        const newAttackerUnits = applyBattleReturn(attackerUnits, attackUnits as Record<string, number>, attackerUnitsAfterBattle);
+        const newDefenderUnits = defenderUnitsAfterBattle;
 
         // Update database
+        await db
+          .update(playerStates)
+          .set({
+            units: newDefenderUnits,
+            updatedAt: new Date(),
+          })
+          .where(eq(playerStates.userId, targetId));
+
         await db
           .update(playerStates)
           .set({
@@ -369,6 +443,7 @@ export function registerCombatRoutes(app: Router) {
           activeEffects: COMBAT_EFFECT_LIBRARY.slice(2, 6),
           plunder: { metal: 0, crystal: 0, deuterium: 0 },
           newAttackerUnits,
+          newDefenderUnits,
         });
       }
     } catch (error) {
@@ -387,9 +462,14 @@ export function registerCombatRoutes(app: Router) {
       const userId = (req as any).session?.userId;
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
 
-      const { units } = req.body;
-      if (!units) {
+      const { units: rawUnits } = req.body;
+      if (!rawUnits) {
         return res.status(400).json({ error: "Missing units" });
+      }
+
+      const units = normalizePositiveUnitMap(rawUnits);
+      if (Object.keys(units).length === 0) {
+        return res.status(400).json({ error: "At least one garrison unit is required" });
       }
 
       const playerState = await db
@@ -415,7 +495,24 @@ export function registerCombatRoutes(app: Router) {
         }
       }
 
-      // Create garrison (stored in artifacts or custom field)
+      const deploymentState = readCombatDeployment(playerState[0].travelState);
+      const updatedTravelState = {
+        ...deploymentState.rawTravelState,
+        combat: {
+          garrison: units,
+          activeDefenses: deploymentState.activeDefenses,
+          updatedAt: new Date().toISOString(),
+        },
+      };
+
+      await db
+        .update(playerStates)
+        .set({
+          travelState: updatedTravelState,
+          updatedAt: new Date(),
+        })
+        .where(eq(playerStates.userId, userId));
+
       const garrison = {
         type: "garrison",
         units,
@@ -444,8 +541,13 @@ export function registerCombatRoutes(app: Router) {
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
 
       const { unitType, quantity } = req.body;
-      if (!unitType || !quantity) {
+      if (!unitType || quantity === undefined) {
         return res.status(400).json({ error: "Missing required fields" });
+      }
+
+      const normalizedQuantity = normalizePositiveInt(quantity);
+      if (normalizedQuantity <= 0) {
+        return res.status(400).json({ error: "quantity must be a positive integer" });
       }
 
       const playerState = await db
@@ -458,17 +560,58 @@ export function registerCombatRoutes(app: Router) {
         return res.status(404).json({ error: "Player not found" });
       }
 
+      const state = playerState[0];
+      const allUnits = toUnitCountMap((state.units as Record<string, any>) || {});
+      const deployment = readCombatDeployment(state.travelState);
+
+      const existingDefense = deployment.activeDefenses[unitType] || 0;
+      const garrisoned = deployment.garrison[unitType] || 0;
+      const availableToAssign = Math.max(0, (allUnits[unitType] || 0) - garrisoned - existingDefense);
+
+      if (availableToAssign < normalizedQuantity) {
+        return res.status(400).json({
+          error: "Insufficient available units for defense activation",
+          unitType,
+          available: availableToAssign,
+          requested: normalizedQuantity,
+        });
+      }
+
+      const nextActiveDefenses = {
+        ...deployment.activeDefenses,
+        [unitType]: existingDefense + normalizedQuantity,
+      };
+
+      const updatedTravelState = {
+        ...deployment.rawTravelState,
+        combat: {
+          garrison: deployment.garrison,
+          activeDefenses: nextActiveDefenses,
+          updatedAt: new Date().toISOString(),
+        },
+      };
+
+      await db
+        .update(playerStates)
+        .set({
+          travelState: updatedTravelState,
+          updatedAt: new Date(),
+        })
+        .where(eq(playerStates.userId, userId));
+
       // Get buildings for defense bonus
-      const buildings = (playerState[0].buildings as any) || {};
+      const buildings = (state.buildings as any) || {};
       const defenseBonus = (buildings.defenseGrid || 0) * 0.1; // +10% defense per level
 
       res.json({
         success: true,
         defense: {
           unitType,
-          quantity,
+          quantity: normalizedQuantity,
           defenseBonus,
-          effectiveDefense: quantity * (1 + defenseBonus),
+          effectiveDefense: normalizedQuantity * (1 + defenseBonus),
+          activeDefenses: nextActiveDefenses,
+          availableRemaining: Math.max(0, availableToAssign - normalizedQuantity),
         },
       });
     } catch (error) {

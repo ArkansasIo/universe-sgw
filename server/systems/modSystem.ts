@@ -54,7 +54,7 @@ export interface ModManifest {
 }
 
 const MODS_SETTINGS_KEY = "mod_system_installed_mods";
-const MODS_DIR = path.join(import.meta.dirname, "..", "mods");
+const MODS_DIR = path.join(process.cwd(), "server", "mods");
 
 export class ModManager {
   private static instance: ModManager;

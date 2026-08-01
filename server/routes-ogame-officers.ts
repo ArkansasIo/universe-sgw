@@ -25,12 +25,21 @@ export function registerOGameOfficerRoutes(app: Router) {
 
       const activeOfficers = (state.activeOfficers as Record<string, any>) || {};
       const now = Date.now();
+      let cleanedExpired = false;
 
       // Clean expired officers
       for (const [id, data] of Object.entries(activeOfficers)) {
         if (data.expiresAt && data.expiresAt < now) {
           delete activeOfficers[id];
+          cleanedExpired = true;
         }
+      }
+
+      if (cleanedExpired) {
+        await db
+          .update(playerStates)
+          .set({ activeOfficers: activeOfficers as any, updatedAt: new Date() })
+          .where(eq(playerStates.userId, userId));
       }
 
       const officers = OFFICER_IDS.map((id) => {
@@ -67,7 +76,7 @@ export function registerOGameOfficerRoutes(app: Router) {
       const def = OGAME_CATALOG_ENTRY_MAP[officerId];
       if (!def) return res.status(404).json({ error: "Officer definition not found" });
 
-      const cost = def.baseCost?.darkMatter || 500;
+      const cost = Math.max(1, Math.floor(Number(def.baseCost?.darkMatter || 500)));
 
       const [state] = await db
         .select({ activeOfficers: playerStates.activeOfficers, resources: playerStates.resources })
@@ -86,9 +95,10 @@ export function registerOGameOfficerRoutes(app: Router) {
 
       const activeOfficers = (state.activeOfficers as Record<string, any>) || {};
       const now = Date.now();
+      const current = activeOfficers[officerId];
 
       // Extend if already active, otherwise activate
-      if (activeOfficers[officerId]) {
+      if (current && current.expiresAt && current.expiresAt > now) {
         activeOfficers[officerId].expiresAt += OFFICER_DURATION_DAYS * 86400000;
       } else {
         activeOfficers[officerId] = {
@@ -116,7 +126,7 @@ export function registerOGameOfficerRoutes(app: Router) {
           name: def.name,
           active: true,
           expiresAt: activeOfficers[officerId].expiresAt,
-          remainingDays: OFFICER_DURATION_DAYS,
+          remainingDays: Math.ceil((activeOfficers[officerId].expiresAt - now) / 86400000),
         },
         darkMatter: resources.darkMatter,
       });

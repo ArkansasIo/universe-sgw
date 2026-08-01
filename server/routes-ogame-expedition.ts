@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { isAuthenticated } from "./basicAuth";
 import { db } from "./db";
-import { playerStates, users, expeditions } from "../shared/schema";
+import { playerStates, expeditions } from "../shared/schema";
 import { eq, sql } from "drizzle-orm";
 
 const RESOURCE_CLASS_MULTIPLIERS = {
@@ -20,6 +20,33 @@ const EXPEDITION_EVENT_WEIGHTS = {
   trader: 5,
   stellarPhenomenon: 5,
 };
+
+function normalizeShipsInput(rawShips: unknown): Record<string, number> {
+  if (!rawShips || typeof rawShips !== "object") return {};
+  const ships: Record<string, number> = {};
+  for (const [type, value] of Object.entries(rawShips as Record<string, unknown>)) {
+    const count = Math.max(0, Math.floor(Number(value) || 0));
+    if (count > 0) ships[type] = count;
+  }
+  return ships;
+}
+
+function allocateNumericLosses(ships: Record<string, number>, totalLosses: number): Record<string, number> {
+  const losses: Record<string, number> = {};
+  let remaining = Math.max(0, Math.floor(totalLosses));
+  const ordered = Object.entries(ships).sort((a, b) => b[1] - a[1]);
+
+  for (const [type, available] of ordered) {
+    if (remaining <= 0) break;
+    const take = Math.min(available, remaining);
+    if (take > 0) {
+      losses[type] = take;
+      remaining -= take;
+    }
+  }
+
+  return losses;
+}
 
 function rollEvent(): string {
   const total = Object.values(EXPEDITION_EVENT_WEIGHTS).reduce((a, b) => a + b, 0);
@@ -44,8 +71,9 @@ export function registerOGameExpeditionRoutes(app: Router) {
       const userId = req.session?.userId;
       if (!userId) return res.status(401).json({ error: "Not authenticated" });
 
-      const { coordinates, ships, duration } = req.body;
-      if (!coordinates || !ships) {
+      const { coordinates, ships: rawShips, duration } = req.body;
+      const ships = normalizeShipsInput(rawShips);
+      if (!coordinates || Object.keys(ships).length === 0) {
         return res.status(400).json({ error: "coordinates and ships required" });
       }
 
@@ -70,15 +98,7 @@ export function registerOGameExpeditionRoutes(app: Router) {
         .set({ units: currentFleet, updatedAt: new Date() })
         .where(eq(playerStates.userId, userId));
 
-      const expeditionHours = Math.max(1, Math.min(8, duration || 1));
-      const departureTime = new Date();
-      const arrivalTime = new Date(departureTime.getTime() + expeditionHours * 3600 * 1000);
-
-      const [usersRow] = await db
-        .select({ username: users.username })
-        .from(users)
-        .where(eq(users.id, userId))
-        .limit(1);
+      const expeditionHours = Math.max(1, Math.min(8, Number(duration) || 1));
 
       const research = (state.research as any) || {};
       const expeditionTech = research.expeditionTech || research.astrophysics || 0;
@@ -171,14 +191,21 @@ export function registerOGameExpeditionRoutes(app: Router) {
         attributes: { shipsSent: ships, eventType, expeditionHours, coordinates },
       } as any);
 
-      const survivingShips: Record<string, number> = { ...ships };
-      if (result.lostShips) {
-        if (typeof result.lostShips === "object") {
-          for (const [type, count] of Object.entries(result.lostShips as Record<string, number>)) {
-            survivingShips[type] = (survivingShips[type] || 0) - count;
-          }
+      const normalizedLosses: Record<string, number> = {};
+      if (typeof result.lostShips === "number") {
+        Object.assign(normalizedLosses, allocateNumericLosses(ships, result.lostShips));
+      } else if (result.lostShips && typeof result.lostShips === "object") {
+        for (const [type, count] of Object.entries(result.lostShips as Record<string, number>)) {
+          normalizedLosses[type] = Math.max(0, Math.min(ships[type] || 0, Math.floor(Number(count) || 0)));
         }
       }
+
+      const survivingShips: Record<string, number> = { ...ships };
+      for (const [type, lost] of Object.entries(normalizedLosses)) {
+        survivingShips[type] = Math.max(0, (survivingShips[type] || 0) - lost);
+      }
+
+      result.lostShips = normalizedLosses;
 
       const finalFleet = (await db
         .select({ units: playerStates.units })
@@ -196,9 +223,34 @@ export function registerOGameExpeditionRoutes(app: Router) {
             units[type] = (units[type] || 0) + count;
           }
         }
+
+        const latestState = await db
+          .select({ resources: playerStates.resources, research: playerStates.research })
+          .from(playerStates)
+          .where(eq(playerStates.userId, userId))
+          .limit(1);
+
+        const resources = ((latestState[0]?.resources as Record<string, number>) || {}) as Record<string, number>;
+        const researchState = ((latestState[0]?.research as Record<string, number>) || {}) as Record<string, number>;
+
+        if (result.resources) {
+          resources.metal = (resources.metal || 0) + Number(result.resources.metal || 0);
+          resources.crystal = (resources.crystal || 0) + Number(result.resources.crystal || 0);
+          resources.deuterium = (resources.deuterium || 0) + Number(result.resources.deuterium || 0);
+        }
+        if (result.darkMatter) {
+          resources.darkMatter = (resources.darkMatter || 0) + Number(result.darkMatter || 0);
+        }
+        if (result.tradeOffer?.deuterium) {
+          resources.deuterium = (resources.deuterium || 0) + Number(result.tradeOffer.deuterium || 0);
+        }
+        if (result.technologyPoints) {
+          researchState.technologyPoints = (researchState.technologyPoints || 0) + Number(result.technologyPoints || 0);
+        }
+
         await db
           .update(playerStates)
-          .set({ units, updatedAt: new Date() })
+          .set({ units, resources, research: researchState, updatedAt: new Date() })
           .where(eq(playerStates.userId, userId));
       }
 

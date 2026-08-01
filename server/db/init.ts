@@ -2,6 +2,15 @@ import { db, pool } from '.';
 import { users, adminUsers, playerStates } from '@shared/schema';
 import { eq } from 'drizzle-orm';
 
+async function tableExists(tableName: string): Promise<boolean> {
+  try {
+    const result = await pool.query("SELECT to_regclass($1) AS table_name", [`public.${tableName}`]);
+    return Boolean(result.rows?.[0]?.table_name);
+  } catch {
+    return false;
+  }
+}
+
 export async function initializeDatabase() {
   try {
     console.log('🔄 Initializing database schema...');
@@ -27,6 +36,13 @@ async function ensureAdminUser() {
   const adminUsername = 'admin';
   
   try {
+    const usersTableReady = await tableExists('users');
+    const adminUsersTableReady = await tableExists('admin_users');
+    if (!usersTableReady || !adminUsersTableReady) {
+      console.warn('⚠️ Skipping admin user bootstrap: required tables are missing (users/admin_users)');
+      return;
+    }
+
     // Check if admin exists
     const existing = await db
       .select()

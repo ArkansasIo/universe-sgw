@@ -1,10 +1,18 @@
 import type { Express, Request, Response } from "express";
-import { db } from "./db";
+import { db, runTransaction } from "./db";
 import { playerStates, users, marketOrders, messages } from "../shared/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { isAuthenticated, isAdmin } from "./basicAuth";
 import { logger, type LogLevel, type LogCategory } from "./logger";
 import { storage } from "./storage";
+
+const MARKET_RESOURCES = new Set(["metal", "crystal", "deuterium"]);
+
+function normalizePositiveInt(value: unknown, fallback = 0): number {
+  const parsed = Math.floor(Number(value));
+  if (!Number.isFinite(parsed)) return fallback;
+  return parsed;
+}
 
 export function registerMissingApiRoutes(app: Express) {
   // GET /api/market/orders - List market orders
@@ -46,6 +54,16 @@ export function registerMissingApiRoutes(app: Express) {
         return res.status(400).json({ error: "Type must be 'buy' or 'sell'" });
       }
 
+      if (!MARKET_RESOURCES.has(String(resource))) {
+        return res.status(400).json({ error: "Resource must be one of: metal, crystal, deuterium" });
+      }
+
+      const normalizedAmount = normalizePositiveInt(amount);
+      const normalizedPrice = normalizePositiveInt(pricePerUnit);
+      if (normalizedAmount <= 0 || normalizedPrice <= 0) {
+        return res.status(400).json({ error: "amount and pricePerUnit must be positive integers" });
+      }
+
       const playerState = await db.query.playerStates.findFirst({
         where: eq(playerStates.userId, userId),
       });
@@ -56,11 +74,11 @@ export function registerMissingApiRoutes(app: Express) {
 
       if (type === "sell") {
         const resourceKey = resource === "metal" ? "metal" : resource === "crystal" ? "crystal" : "deuterium";
-        if ((resources[resourceKey] || 0) < amount) {
+        if ((resources[resourceKey] || 0) < normalizedAmount) {
           return res.status(400).json({ error: "Insufficient resources" });
         }
         await db.update(playerStates).set({
-          resources: { ...resources, [resourceKey]: resources[resourceKey] - amount },
+          resources: { ...resources, [resourceKey]: resources[resourceKey] - normalizedAmount },
           updatedAt: new Date(),
         }).where(eq(playerStates.userId, userId));
       }
@@ -69,8 +87,8 @@ export function registerMissingApiRoutes(app: Express) {
         userId,
         type,
         resource,
-        amount,
-        pricePerUnit,
+        amount: normalizedAmount,
+        pricePerUnit: normalizedPrice,
         status: "active",
       }).returning();
 
@@ -91,46 +109,155 @@ export function registerMissingApiRoutes(app: Express) {
         return res.status(400).json({ error: "Missing orderId or amount" });
       }
 
-      const order = await db.query.marketOrders.findFirst({
-        where: eq(marketOrders.id, orderId),
+      const normalizedAmount = normalizePositiveInt(amount);
+      if (normalizedAmount <= 0) {
+        return res.status(400).json({ error: "amount must be a positive integer" });
+      }
+
+      const fail = (status: number, error: string, details?: Record<string, unknown>) => {
+        const routeError = new Error(error) as Error & {
+          status: number;
+          payload: Record<string, unknown>;
+        };
+        routeError.status = status;
+        routeError.payload = details ? { error, ...details } : { error };
+        throw routeError;
+      };
+
+      const result = await runTransaction(async (tx) => {
+        const [order] = await tx
+          .select()
+          .from(marketOrders)
+          .where(eq(marketOrders.id, orderId))
+          .limit(1);
+
+        if (!order || order.status !== "active") {
+          fail(404, "Order not found or inactive");
+        }
+
+        if (order.type !== "sell") {
+          fail(400, "Only sell orders can be purchased with this endpoint");
+        }
+
+        if (order.userId === userId) {
+          fail(400, "Cannot buy your own order");
+        }
+
+        if (normalizedAmount > order.amount) {
+          fail(400, "Requested amount exceeds available order quantity", { available: order.amount });
+        }
+
+        const [buyerState] = await tx
+          .select()
+          .from(playerStates)
+          .where(eq(playerStates.userId, userId))
+          .limit(1);
+
+        if (!buyerState) {
+          fail(404, "Player not found");
+        }
+
+        const [sellerState] = await tx
+          .select()
+          .from(playerStates)
+          .where(eq(playerStates.userId, order.userId))
+          .limit(1);
+
+        if (!sellerState) {
+          fail(404, "Seller not found");
+        }
+
+        const totalCost = Math.floor(normalizedAmount * order.pricePerUnit);
+        const buyerResources = (buyerState.resources as any) || {};
+        const buyerCredits = Number(buyerResources.credits ?? buyerResources.metal ?? 0);
+        if (buyerCredits < totalCost) {
+          fail(400, "Insufficient credits", { required: totalCost, available: buyerCredits });
+        }
+
+        const resourceKey =
+          order.resource === "metal" ? "metal" : order.resource === "crystal" ? "crystal" : "deuterium";
+
+        const updatedBuyerResources = {
+          ...buyerResources,
+          credits: Number(buyerResources.credits || 0) - totalCost,
+          [resourceKey]: (buyerResources[resourceKey] || 0) + normalizedAmount,
+        };
+
+        if (buyerResources.credits === undefined) {
+          updatedBuyerResources.metal = (buyerResources.metal || 0) - totalCost;
+        }
+
+        const sellerResources = (sellerState.resources as any) || {};
+        const updatedSellerResources = {
+          ...sellerResources,
+          credits: Number(sellerResources.credits || 0) + totalCost,
+        };
+
+        if (sellerResources.credits === undefined) {
+          updatedSellerResources.metal = Number(sellerResources.metal || 0) + totalCost;
+        }
+
+        await tx
+          .update(playerStates)
+          .set({
+            resources: updatedBuyerResources,
+            updatedAt: new Date(),
+          })
+          .where(eq(playerStates.userId, userId));
+
+        await tx
+          .update(playerStates)
+          .set({
+            resources: updatedSellerResources,
+            updatedAt: new Date(),
+          })
+          .where(eq(playerStates.userId, order.userId));
+
+        const remaining = order.amount - normalizedAmount;
+        const now = new Date();
+        const updatedOrder =
+          remaining <= 0
+            ? await tx
+                .update(marketOrders)
+                .set({ status: "completed", amount: 0, completedAt: now })
+                .where(
+                  and(
+                    eq(marketOrders.id, order.id),
+                    eq(marketOrders.status, "active"),
+                    eq(marketOrders.amount, order.amount),
+                  ),
+                )
+                .returning({ id: marketOrders.id })
+            : await tx
+                .update(marketOrders)
+                .set({ amount: remaining })
+                .where(
+                  and(
+                    eq(marketOrders.id, order.id),
+                    eq(marketOrders.status, "active"),
+                    eq(marketOrders.amount, order.amount),
+                  ),
+                )
+                .returning({ id: marketOrders.id });
+
+        if (updatedOrder.length === 0) {
+          fail(409, "Order changed while processing. Please retry.");
+        }
+
+        return {
+          success: true,
+          cost: totalCost,
+          resource: order.resource,
+          amount: normalizedAmount,
+          remaining: Math.max(0, remaining),
+        };
       });
 
-      if (!order || order.status !== "active") {
-        return res.status(404).json({ error: "Order not found or inactive" });
-      }
-
-      if (order.userId === userId) {
-        return res.status(400).json({ error: "Cannot buy your own order" });
-      }
-
-      const totalCost = Math.floor(amount * order.pricePerUnit);
-      const playerState = await db.query.playerStates.findFirst({
-        where: eq(playerStates.userId, userId),
-      });
-
-      if (!playerState) return res.status(404).json({ error: "Player not found" });
-
-      const resources = (playerState.resources as any) || {};
-      if ((resources.metal || 0) < totalCost) {
-        return res.status(400).json({ error: "Insufficient credits", required: totalCost });
-      }
-
-      const resourceKey = order.resource === "metal" ? "metal" : order.resource === "crystal" ? "crystal" : "deuterium";
-
-      await db.update(playerStates).set({
-        resources: { ...resources, metal: (resources.metal || 0) - totalCost, [resourceKey]: (resources[resourceKey] || 0) + amount },
-        updatedAt: new Date(),
-      }).where(eq(playerStates.userId, userId));
-
-      const remaining = order.amount - amount;
-      if (remaining <= 0) {
-        await db.update(marketOrders).set({ status: "completed", completedAt: new Date() }).where(eq(marketOrders.id, orderId));
-      } else {
-        await db.update(marketOrders).set({ amount: remaining }).where(eq(marketOrders.id, orderId));
-      }
-
-      res.json({ success: true, cost: totalCost, resource: order.resource, amount });
+      res.json(result);
     } catch (error: any) {
+      if (typeof error?.status === "number") {
+        return res.status(error.status).json(error.payload || { error: error.message });
+      }
       res.status(500).json({ error: error.message });
     }
   });
@@ -270,7 +397,11 @@ export function registerMissingApiRoutes(app: Express) {
       const resources = (playerState.resources as any) || {};
       const colonizeCost = { metal: 5000, crystal: 2000, deuterium: 1000 };
 
-      if ((resources.metal || 0) < colonizeCost.metal || (resources.crystal || 0) < colonizeCost.crystal) {
+      if (
+        (resources.metal || 0) < colonizeCost.metal ||
+        (resources.crystal || 0) < colonizeCost.crystal ||
+        (resources.deuterium || 0) < colonizeCost.deuterium
+      ) {
         return res.status(400).json({ error: "Insufficient resources for colonization", required: colonizeCost });
       }
 
@@ -310,6 +441,15 @@ export function registerMissingApiRoutes(app: Express) {
         return res.status(400).json({ error: "planetId, resource, and amount are required" });
       }
 
+      if (!MARKET_RESOURCES.has(String(resource))) {
+        return res.status(400).json({ error: "resource must be one of: metal, crystal, deuterium" });
+      }
+
+      const normalizedAmount = normalizePositiveInt(amount);
+      if (normalizedAmount <= 0) {
+        return res.status(400).json({ error: "amount must be a positive integer" });
+      }
+
       const playerState = await db.query.playerStates.findFirst({
         where: eq(playerStates.userId, userId),
       });
@@ -318,7 +458,7 @@ export function registerMissingApiRoutes(app: Express) {
 
       const resources = (playerState.resources as any) || {};
       const resourceKey = resource === "metal" ? "metal" : resource === "crystal" ? "crystal" : "deuterium";
-      const extracted = Math.min(amount, 1000);
+      const extracted = Math.min(normalizedAmount, 1000);
 
       await db.update(playerStates).set({
         resources: { ...resources, [resourceKey]: (resources[resourceKey] || 0) + extracted },
