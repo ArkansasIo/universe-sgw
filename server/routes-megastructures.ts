@@ -7,6 +7,19 @@ import {
   upgradeMegastructureTierForPlayer,
   setMegastructureOperationalState,
 } from "./services/megastructureService";
+import {
+  getMegastructureDetailForPlayer,
+  upgradeMegastructureSubsystemForPlayer,
+  recomputeMegastructureProductionForPlayer,
+  getDysonProgramSummary,
+  getMegastructurePendingAccrual,
+  tickMegastructureResourcesForPlayer,
+} from "./services/megastructureSubsystemService";
+import {
+  installMegastructureModuleForPlayer,
+  uninstallMegastructureModuleForPlayer,
+  attachMegastructureModulesToDetail,
+} from "./services/megastructureModuleService";
 
 const isAuthenticated = (req: Request, res: Response, next: any) => {
   if (!req.session.userId) {
@@ -34,6 +47,31 @@ export function registerMegastructureRoutes(app: any) {
       res.json({ structures });
     } catch (error: any) {
       res.status(500).json({ message: error?.message || "Failed to load player megastructures" });
+    }
+  });
+
+  app.get("/api/megastructures/dyson", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const summary = await getDysonProgramSummary(userId);
+      res.json(summary);
+    } catch (error: any) {
+      res.status(500).json({ message: error?.message || "Failed to load Dyson program summary" });
+    }
+  });
+
+  app.get("/api/megastructures/:id", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const result = await getMegastructureDetailForPlayer(userId, req.params.id);
+      if (!result.success) {
+        return res.status(404).json({ message: "Megastructure not found" });
+      }
+      const withModules = attachMegastructureModulesToDetail(result as any, (result as any).structure);
+      const accrual = getMegastructurePendingAccrual((result as any).structure);
+      res.json({ ...withModules, accrual });
+    } catch (error: any) {
+      res.status(500).json({ message: error?.message || "Failed to load megastructure detail" });
     }
   });
 
@@ -108,6 +146,75 @@ export function registerMegastructureRoutes(app: any) {
       res.json({ success: true, structure: updated });
     } catch (error: any) {
       res.status(500).json({ message: error?.message || "Failed to update operational state" });
+    }
+  });
+
+  app.post("/api/megastructures/:id/subsystems/:subsystemId/upgrade", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const result = await upgradeMegastructureSubsystemForPlayer(userId, req.params.id, req.params.subsystemId);
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error?.message || "Failed to upgrade megastructure subsystem" });
+    }
+  });
+
+  app.post("/api/megastructures/:id/production/recompute", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const result = await recomputeMegastructureProductionForPlayer(userId, req.params.id);
+      if (!result.success) {
+        return res.status(404).json({ message: "Megastructure not found" });
+      }
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error?.message || "Failed to recompute production" });
+    }
+  });
+
+  app.post("/api/megastructures/:id/tick", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const result = await tickMegastructureResourcesForPlayer(userId, req.params.id);
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error?.message || "Failed to accrue megastructure production" });
+    }
+  });
+
+  app.post("/api/megastructures/:id/modules/install", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const moduleId = req.body?.moduleId;
+      if (!moduleId || typeof moduleId !== "string") {
+        return res.status(400).json({ message: "moduleId is required" });
+      }
+      const result = await installMegastructureModuleForPlayer(userId, req.params.id, moduleId);
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error?.message || "Failed to install megastructure module" });
+    }
+  });
+
+  app.post("/api/megastructures/:id/modules/:moduleId/uninstall", isAuthenticated, async (req: Request, res: Response) => {
+    try {
+      const userId = getUserId(req);
+      const result = await uninstallMegastructureModuleForPlayer(userId, req.params.id, req.params.moduleId);
+      if (!result.success) {
+        return res.status(400).json(result);
+      }
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ message: error?.message || "Failed to uninstall megastructure module" });
     }
   });
 }

@@ -11,6 +11,8 @@
  *   - Border and accent styles
  */
 
+import { QUANTUM_SINGULARITY_THEME } from './themes/quantumSingularityTheme';
+
 export type ThemeId = 
   | 'cosmic_void'
   | 'nebula_dreams'
@@ -20,7 +22,8 @@ export type ThemeId =
   | 'shadow_realm'
   | 'emerald_forest'
   | 'crimson_war'
-  | 'stellar_gold';
+  | 'stellar_gold'
+  | 'quantum_singularity';
 
 export interface ThemeColors {
   primary: string;
@@ -973,6 +976,7 @@ export const THEME_REGISTRY: Record<ThemeId, ThemeDefinition> = {
   emerald_forest: EMERALD_FOREST,
   crimson_war: CRIMSON_WAR,
   stellar_gold: STELLAR_GOLD,
+  quantum_singularity: QUANTUM_SINGULARITY_THEME,
 };
 
 export const ALL_THEMES: ThemeDefinition[] = Object.values(THEME_REGISTRY);
@@ -1010,7 +1014,7 @@ export function isThemeUnlockedBySRank(themeId: ThemeId, playerSRankTier: string
   const sRankThemes: Record<string, ThemeId[]> = {
     'none': ['cosmic_void'],
     'S': ['cosmic_void', 'nebula_dreams', 'solar_flare', 'deep_ocean', 'emerald_forest'],
-    'SS': ['cosmic_void', 'nebula_dreams', 'solar_flare', 'deep_ocean', 'crystal_aurora', 'shadow_realm', 'emerald_forest', 'crimson_war'],
+    'SS': ['cosmic_void', 'nebula_dreams', 'solar_flare', 'deep_ocean', 'crystal_aurora', 'shadow_realm', 'emerald_forest', 'crimson_war', 'quantum_singularity'],
     'SSS': ALL_THEMES.map(t => t.id),
   };
   return (sRankThemes[playerSRankTier] || ['cosmic_void']).includes(themeId);

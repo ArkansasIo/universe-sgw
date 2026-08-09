@@ -5,12 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  MEGA_STRUCTURES,
-  MEGA_STRUCTURE_CATEGORIES,
-  calculateConstructionCost,
-  getMegaStructuresByCategory,
-} from "@/lib/megaStructures";
+import { MEGA_STRUCTURE_CATEGORIES, getMegaStructuresByCategory } from "@/lib/megaStructures";
+import { constructMegastructureApi } from "@/lib/megastructureSubsystems";
 import { useGame } from "@/lib/gameContext";
 import {
   MEGASTRUCTURE_CATEGORY_SYSTEMS,
@@ -18,6 +14,8 @@ import {
 } from "@/lib/megastructureExpansionCatalog";
 import { getCurrentKardashevUpgradeLevel } from "@/lib/kardashevUpgradeCatalog";
 import { cn } from "@/lib/utils";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { BACKGROUND_ASSETS, SHIP_ASSETS, MENU_ASSETS, OGAMEX_FEATURED_ASSETS } from "@shared/config";
 import {
   Clock3,
@@ -117,7 +115,6 @@ function StageVisualizer({ progress }: { progress: number }) {
 
 export default function MegaStructures() {
   const {
-    constructMegastructure,
     megastructureSystems,
     technologyDivisionSystems,
     kardashevSystems,
@@ -129,6 +126,35 @@ export default function MegaStructures() {
   const [activeTab, setActiveTab] = useState("overview");
   const [selectedStructure, setSelectedStructure] = useState<string | null>(null);
   const [moduleFilter, setModuleFilter] = useState<string>("all");
+  const [buildingTemplate, setBuildingTemplate] = useState<string | null>(null);
+  const [buildError, setBuildError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  const playerStructuresQuery = useQuery<{ structures: any[] }>({
+    queryKey: ["player-megastructures"],
+    queryFn: async () => {
+      const res = await fetch("/api/megastructures/player", { credentials: "include" });
+      if (!res.ok) throw new Error("Failed to load structures");
+      return res.json();
+    },
+    staleTime: 30_000,
+  });
+
+  const playerStructures = playerStructuresQuery.data?.structures || [];
+
+  const handleBuild = async (templateId: string, name: string) => {
+    setBuildingTemplate(templateId);
+    setBuildError(null);
+    try {
+      await constructMegastructureApi({ templateId, name });
+      await queryClient.invalidateQueries({ queryKey: ["player-megastructures"] });
+      setActiveTab("construction");
+    } catch (error: any) {
+      setBuildError(error?.message || "Construction failed");
+    } finally {
+      setBuildingTemplate(null);
+    }
+  };
 
   const researchTotal = Object.values(research).reduce((sum, value) => sum + (value || 0), 0);
   const technologyDivisionTotal = Object.values(technologyDivisionSystems).reduce((sum, value) => sum + (value || 0), 0);
@@ -311,6 +337,50 @@ export default function MegaStructures() {
           </TabsContent>
 
           <TabsContent value="construction" className="space-y-4 mt-4">
+            {buildError && (
+              <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700">
+                {buildError}
+              </div>
+            )}
+            {playerStructures.length > 0 && (
+              <Card className="border-emerald-200 bg-emerald-50">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg flex items-center gap-2"><Layers className="w-5 h-5" /> Owned Structures</CardTitle>
+                  <CardDescription>Open the full detail page for each owned structure, including its installed sub-systems.</CardDescription>
+                </CardHeader>
+                <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {playerStructures.map((structure) => (
+                    <Card key={structure.id} className="bg-white border-slate-200 shadow-sm">
+                      <CardContent className="p-4 space-y-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="font-semibold text-slate-900">{structure.name}</div>
+                          <Badge variant="outline" className="bg-slate-50 text-slate-700 capitalize">{structure.structureType.replace(/[_-]/g, " ")}</Badge>
+                        </div>
+                        <div className="text-xs text-slate-500">
+                          Lvl {structure.level} · {structure.coordinates} · {structure.isOperational ? "Operational" : "Idle"}
+                        </div>
+                        <Button size="sm" variant="outline" className="w-full" asChild>
+                          <Link href={`/megastructures/${structure.id}`}>Open Detail</Link>
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </CardContent>
+              </Card>
+            )}
+
+            <Card className="border-amber-200 bg-amber-50">
+              <CardContent className="flex flex-col gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-amber-900 flex items-center gap-2"><Sparkles className="w-4 h-4" /> Dyson Program</div>
+                  <div className="text-xs text-amber-700 mt-1">Browse the full Dyson sphere sub-system catalog, functions, and upgrade math.</div>
+                </div>
+                <Button asChild className="font-orbitron tracking-wider">
+                  <Link href="/megastructures/dyson">Open Dyson Program</Link>
+                </Button>
+              </CardContent>
+            </Card>
+
             <Card className="border-slate-200 bg-white">
               <CardHeader className="pb-2">
                 <CardTitle className="text-lg flex items-center gap-2"><Hammer className="w-5 h-5" /> Active Construction</CardTitle>
@@ -365,13 +435,14 @@ export default function MegaStructures() {
                         ) : (
                           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
                             {structures.map((structure) => {
-                              const cost = calculateConstructionCost(structure);
                               return (
                                 <Card key={structure.id} className="border-slate-200 bg-white shadow-sm">
                                   <CardHeader className="pb-2">
                                     <div className="flex items-start justify-between gap-3">
                                       <div>
-                                        <CardTitle className="text-lg text-slate-900">{structure.name}</CardTitle>
+                                        <Link href={`/megastructures/${structure.templateId}`} className="text-lg font-bold text-slate-900 hover:text-primary hover:underline">
+                                          {structure.name}
+                                        </Link>
                                         <div className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-500">{structure.type.replace(/_/g, " ")}</div>
                                       </div>
                                       <Badge variant="outline" className="bg-slate-50 text-slate-700">Tier {structure.tier}</Badge>
@@ -379,28 +450,14 @@ export default function MegaStructures() {
                                   </CardHeader>
                                   <CardContent className="space-y-4">
                                     <p className="text-sm text-slate-600">{structure.description}</p>
-                                    <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-                                      <div className="text-xs uppercase tracking-widest text-amber-700">Special Ability</div>
-                                      <div className="mt-1 text-sm font-medium text-amber-900">{structure.specialAbility}</div>
+                                    <div className="flex gap-2">
+                                      <Button size="sm" variant="outline" className="flex-1" asChild>
+                                        <Link href={`/megastructures/${structure.templateId}`}>View Detail</Link>
+                                      </Button>
+                                      <Button size="sm" className="flex-1 font-orbitron tracking-wider" disabled={buildingTemplate !== null} onClick={() => handleBuild(structure.templateId, structure.name)}>
+                                        {buildingTemplate === structure.templateId ? "Constructing…" : "Build"}
+                                      </Button>
                                     </div>
-                                    <div className="grid grid-cols-2 gap-3">
-                                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="text-xs uppercase tracking-widest text-slate-500">Energy</div><div className="mt-1 text-lg font-bold text-yellow-700">{structure.stats.energyOutput.toLocaleString()}</div></div>
-                                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="text-xs uppercase tracking-widest text-slate-500">Research</div><div className="mt-1 text-lg font-bold text-violet-700">+{structure.stats.researchBonus}%</div></div>
-                                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="text-xs uppercase tracking-widest text-slate-500">Production</div><div className="mt-1 text-lg font-bold text-emerald-700">+{structure.stats.productionBonus}%</div></div>
-                                      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="text-xs uppercase tracking-widest text-slate-500">Population</div><div className="mt-1 text-lg font-bold text-sky-700">{(structure.stats.populationCapacity / 1000000).toFixed(1)}M</div></div>
-                                    </div>
-                                    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
-                                      <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-widest text-slate-500"><TrendingUp className="h-3.5 w-3.5 text-primary" /> Construction Cost</div>
-                                      <div className="space-y-1">
-                                        <div className="flex items-center justify-between"><span className="text-slate-600">Metal</span><span>{cost.metal.toLocaleString()}</span></div>
-                                        <div className="flex items-center justify-between"><span className="text-slate-600">Crystal</span><span>{cost.crystal.toLocaleString()}</span></div>
-                                        <div className="flex items-center justify-between"><span className="text-slate-600">Deuterium</span><span>{cost.deuterium.toLocaleString()}</span></div>
-                                        <div className="flex items-center justify-between pt-1 text-xs text-slate-500"><span>Build Time</span><span>{structure.stats.constructionTime.toLocaleString()} turns</span></div>
-                                      </div>
-                                    </div>
-                                    <Button className="w-full font-orbitron tracking-wider" onClick={() => constructMegastructure(structure.templateId, structure.name, structure.stats.constructionTime)}>
-                                      Begin Construction
-                                    </Button>
                                   </CardContent>
                                 </Card>
                               );
@@ -418,8 +475,8 @@ export default function MegaStructures() {
           <TabsContent value="modules" className="space-y-4 mt-4">
             <Card>
               <CardHeader>
-                <CardTitle className="flex items-center gap-2"><Cog className="w-5 h-5" /> Module Slot Integrations</CardTitle>
-                <CardDescription>Install modules into active megastructures to amplify specific bonuses. Each structure supports up to 2 module slots.</CardDescription>
+                <CardTitle className="flex items-center gap-2"><Cog className="w-5 h-5" /> Module Socket Integrations</CardTitle>
+                <CardDescription>Install modules into active megastructures to amplify specific bonuses. Socket count grows with structure level and tier — manage sockets on each structure's detail page.</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="flex flex-wrap gap-2 mb-4">
@@ -433,6 +490,9 @@ export default function MegaStructures() {
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                   {activeModuleSlots.map((module) => {
                     const MIcon = module.icon;
+                    const installedOn = playerStructures.filter((structure) =>
+                      (structure.details?.modules || []).some((item: any) => item.id === module.id),
+                    );
                     return (
                       <Card key={module.id} className={cn(moduleFilter === module.id && "ring-2 ring-primary")}>
                         <CardHeader className="pb-3">
@@ -444,9 +504,11 @@ export default function MegaStructures() {
                         <CardContent className="text-sm space-y-2">
                           <p className="text-slate-600">{module.description}</p>
                           <Separator />
-                          <div className="flex justify-between text-xs"><span className="text-slate-500">Slots Available</span><span className="font-semibold">{allConstructable.length * 2}</span></div>
-                          <div className="flex justify-between text-xs"><span className="text-slate-500">Currently Installed</span><span className="font-semibold text-emerald-700">{Math.floor(Math.random() * 5 + 1)}</span></div>
-                          <Button size="sm" variant="outline" className="w-full mt-2">Install Module</Button>
+                          <div className="flex justify-between text-xs"><span className="text-slate-500">Owned Structures</span><span className="font-semibold">{playerStructures.length}</span></div>
+                          <div className="flex justify-between text-xs"><span className="text-slate-500">Currently Installed</span><span className="font-semibold text-emerald-700">{installedOn.length}</span></div>
+                          <Button size="sm" variant="outline" className="w-full mt-2" asChild disabled={playerStructures.length === 0}>
+                            <Link href={playerStructures[0] ? `/megastructures/${playerStructures[0].id}` : "#"}>Manage Modules</Link>
+                          </Button>
                         </CardContent>
                       </Card>
                     );

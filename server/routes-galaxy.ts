@@ -2,7 +2,8 @@ import type { Express, Request, Response } from "express";
 import { db } from "./db";
 import { storage } from "./storage";
 import { playerStates, users, alliances } from "../shared/schema";
-import { like, eq } from "drizzle-orm";
+import { like, eq, count } from "drizzle-orm";
+import { UNIVERSE_CONFIG } from "../shared/config/universeConfig";
 
 type SystemObjectType = "planet" | "asteroid" | "nebula" | "blackhole" | "station" | "empty" | "comet";
 
@@ -39,6 +40,28 @@ type ScanReport = {
 
 /** Maximum orbital positions displayed in a system (matches the client table). */
 const MAX_SYSTEM_POSITIONS = 50;
+
+/** Number of galaxies in the universe (OGame-style list of 30). */
+const GALAXY_COUNT = UNIVERSE_CONFIG.size.galaxyCount;
+
+/** Systems per sector used to flatten galaxy coordinates into an OGame-style system index. */
+const SYSTEMS_PER_SECTOR = UNIVERSE_CONFIG.size.systemsPerSector;
+
+/** Sectors per galaxy used to flatten galaxy coordinates into an OGame-style system index. */
+const SECTORS_PER_GALAXY = UNIVERSE_CONFIG.size.sectorsPerGalaxy;
+
+/** Total systems available inside a single galaxy (flat index space). */
+const TOTAL_SYSTEMS_PER_GALAXY = SECTORS_PER_GALAXY * SYSTEMS_PER_SECTOR;
+
+/**
+ * Convert a flat 1-based OGame-style system index into sector:system coordinates.
+ */
+function systemIndexToCoordinates(index: number): { sector: number; system: number } {
+  const i = Math.max(1, Math.floor(index));
+  const sector = Math.floor((i - 1) / SYSTEMS_PER_SECTOR) + 1;
+  const system = ((i - 1) % SYSTEMS_PER_SECTOR) + 1;
+  return { sector, system };
+}
 
 /** FNV-1a 32-bit hash of an arbitrary string. */
 function fnv1a(str: string): number {
@@ -223,6 +246,80 @@ function generateSystem(
   return { systemName, star: { type: starType, name: starName }, positions };
 }
 
+/**
+ * Overlay real player homeworlds from the DB onto generated positions.
+ * Player coordinate format in DB: "[galaxy:sector:system:pos]" or "[galaxy:system:pos]".
+ */
+async function overlayPlayerData(
+  galaxy: number,
+  sector: number,
+  system: number,
+  positions: SystemPosition[],
+): Promise<void> {
+  try {
+    const coordPrefix = `[${galaxy}:${sector}:${system}:`;
+    const players = await db
+      .select({
+        id: playerStates.id,
+        coordinates: playerStates.coordinates,
+        planetName: playerStates.planetName,
+        userId: playerStates.userId,
+      })
+      .from(playerStates)
+      .where(like(playerStates.coordinates, `${coordPrefix}%`));
+
+    const userIds = players.map((p) => p.userId);
+
+    // Fetch usernames and alliance memberships for matched players
+    const usernameMap: Record<string, string> = {};
+    const allianceMap: Record<string, string> = {};
+
+    if (userIds.length > 0) {
+      for (const player of players) {
+        const userRows = await db
+          .select({ id: users.id, username: users.username })
+          .from(users)
+          .where(eq(users.id, player.userId))
+          .limit(1);
+        if (userRows[0]?.username) {
+          usernameMap[player.userId] = userRows[0].username;
+        }
+      }
+    }
+
+    // Apply real player data onto generated positions
+    for (const player of players) {
+      const coordStr = player.coordinates; // e.g. "[2:4:102:8]"
+      const inner = coordStr.replace(/^\[/, "").replace(/\]$/, "");
+      const parts = inner.split(":");
+      if (parts.length < 4) continue;
+      const pos = parseInt(parts[3], 10);
+      if (isNaN(pos) || pos < 1 || pos > MAX_SYSTEM_POSITIONS) continue;
+
+      const existingPos = positions.find((p) => p.position === pos);
+      const owner = usernameMap[player.userId] || `Player-${player.userId.slice(0, 6)}`;
+      const alliance = allianceMap[player.userId];
+      const entry: SystemPosition = {
+        position: pos,
+        type: "planet",
+        name: player.planetName || `${owner}'s World`,
+        owner,
+        alliance,
+        moon: existingPos?.moon,
+        class: existingPos?.class || "M",
+      };
+      const idx = positions.findIndex((p) => p.position === pos);
+      if (idx >= 0) {
+        positions[idx] = entry;
+      } else {
+        positions.push(entry);
+      }
+    }
+  } catch {
+    // DB lookup failure is non-fatal; fall back to generated data
+  }
+}
+
 function generateScanReport(
   universe: string,
   galaxy: number,
@@ -314,71 +411,7 @@ export function registerGalaxyRoutes(app: Express) {
         const positions: SystemPosition[] = generated.positions;
 
         // Overlay real player data from DB.
-        // Player coordinate format in DB: "[galaxy:sector:system:pos]" or "[galaxy:system:pos]"
-        // We match any player whose coordinate starts with [galaxy: and contains :pos].
-        // Pattern: [galaxy:sector:system:pos] where all params match.
-        try {
-          const coordPrefix = `[${galaxy}:${sector}:${system}:`;
-          const players = await db
-            .select({
-              id: playerStates.id,
-              coordinates: playerStates.coordinates,
-              planetName: playerStates.planetName,
-              userId: playerStates.userId,
-            })
-            .from(playerStates)
-            .where(like(playerStates.coordinates, `${coordPrefix}%`));
-
-          const userIds = players.map((p) => p.userId);
-
-          // Fetch usernames and alliance memberships for matched players
-          const usernameMap: Record<string, string> = {};
-          const allianceMap: Record<string, string> = {};
-
-          if (userIds.length > 0) {
-            for (const player of players) {
-              const userRows = await db
-                .select({ id: users.id, username: users.username })
-                .from(users)
-                .where(eq(users.id, player.userId))
-                .limit(1);
-              if (userRows[0]?.username) {
-                usernameMap[player.userId] = userRows[0].username;
-              }
-            }
-          }
-
-          // Apply real player data onto generated positions
-          for (const player of players) {
-            const coordStr = player.coordinates; // e.g. "[2:4:102:8]"
-            const inner = coordStr.replace(/^\[/, "").replace(/\]$/, "");
-            const parts = inner.split(":");
-            if (parts.length < 4) continue;
-            const pos = parseInt(parts[3], 10);
-            if (isNaN(pos) || pos < 1 || pos > MAX_SYSTEM_POSITIONS) continue;
-
-            const existingPos = positions.find((p) => p.position === pos);
-            const owner = usernameMap[player.userId] || `Player-${player.userId.slice(0, 6)}`;
-            const alliance = allianceMap[player.userId];
-            const entry: SystemPosition = {
-              position: pos,
-              type: "planet",
-              name: player.planetName || `${owner}'s World`,
-              owner,
-              alliance,
-              moon: existingPos?.moon,
-              class: existingPos?.class || "M",
-            };
-            const idx = positions.findIndex((p) => p.position === pos);
-            if (idx >= 0) {
-              positions[idx] = entry;
-            } else {
-              positions.push(entry);
-            }
-          }
-        } catch {
-          // DB lookup failure is non-fatal; fall back to generated data
-        }
+        await overlayPlayerData(galaxy, sector, system, positions);
 
         res.json({
           universe,
@@ -460,6 +493,129 @@ export function registerGalaxyRoutes(app: Express) {
       } catch (error) {
         console.error("Galaxy scan route error:", error);
         return res.status(500).json({ error: "Failed to complete deep scan" });
+      }
+    },
+  );
+
+  /**
+   * GET /api/universe/:universe/galaxies
+   * Returns the OGame-style universe list: every galaxy in the universe with a summary.
+   */
+  app.get(
+    "/api/universe/:universe/galaxies",
+    isAuthenticated,
+    async (req: Request, res: Response) => {
+      try {
+        const { universe } = req.params;
+        const galaxies: Array<{
+          galaxy: number;
+          name: string;
+          starType: string;
+          starName: string;
+          systemsPerGalaxy: number;
+          planetsPerSystem: number;
+          players: number;
+        }> = [];
+
+        for (let g = 1; g <= GALAXY_COUNT; g++) {
+          const metaHash = fnv1a(`${universe}:galaxy:${g}:meta`);
+          const nameHash = fnv1a(`${universe}:galaxy:${g}:name`);
+          const starType = pickStarType(seededAt(metaHash, 0));
+          const sample = generateSystem(universe, g, 1, 1);
+
+          let players = 0;
+          try {
+            const rows = await db
+              .select({ c: count() })
+              .from(playerStates)
+              .where(like(playerStates.coordinates, `[${g}:%`));
+            players = Number(rows[0]?.c || 0);
+          } catch {
+            // player count is best-effort
+          }
+
+          galaxies.push({
+            galaxy: g,
+            name: `${generateName(nameHash)} Galaxy`,
+            starType,
+            starName: sample.star.name,
+            systemsPerGalaxy: TOTAL_SYSTEMS_PER_GALAXY,
+            planetsPerSystem: MAX_SYSTEM_POSITIONS,
+            players,
+          });
+        }
+
+        res.json({
+          universe,
+          galaxyCount: GALAXY_COUNT,
+          planetsPerSystem: MAX_SYSTEM_POSITIONS,
+          galaxies,
+        });
+      } catch (error) {
+        console.error("Universe galaxies route error:", error);
+        res.status(500).json({ error: "Failed to load galaxy list" });
+      }
+    },
+  );
+
+  /**
+   * GET /api/galaxy/:universe/:galaxy/systems?start=&count=
+   * Returns an OGame-style page of systems inside a galaxy. Each system is a row
+   * in the galaxy grid and carries its 50 orbital positions.
+   */
+  app.get(
+    "/api/galaxy/:universe/:galaxy/systems",
+    isAuthenticated,
+    async (req: Request, res: Response) => {
+      try {
+        const { universe } = req.params;
+        const galaxy = parseInt(req.params.galaxy, 10);
+        const start = parseInt(String(req.query.start || "1"), 10);
+        const requestedCount = parseInt(String(req.query.count || "10"), 10);
+        const count = Math.max(1, Math.min(Number.isFinite(requestedCount) ? requestedCount : 10, 25));
+
+        if (isNaN(galaxy) || galaxy < 1 || galaxy > GALAXY_COUNT || !Number.isFinite(start) || start < 1) {
+          return res.status(400).json({ error: "Invalid galaxy or system range" });
+        }
+
+        const systems: Array<{
+          index: number;
+          sector: number;
+          system: number;
+          systemName: string;
+          star: { type: string; name: string };
+          positions: SystemPosition[];
+        }> = [];
+
+        for (let i = start; i < start + count; i++) {
+          const { sector, system } = systemIndexToCoordinates(i);
+          if (sector > SECTORS_PER_GALAXY) break;
+
+          const generated = generateSystem(universe, galaxy, sector, system);
+          await overlayPlayerData(galaxy, sector, system, generated.positions);
+
+          systems.push({
+            index: i,
+            sector,
+            system,
+            systemName: generated.systemName,
+            star: generated.star,
+            positions: generated.positions,
+          });
+        }
+
+        res.json({
+          universe,
+          galaxy,
+          start,
+          count,
+          totalSystems: TOTAL_SYSTEMS_PER_GALAXY,
+          planetsPerSystem: MAX_SYSTEM_POSITIONS,
+          systems,
+        });
+      } catch (error) {
+        console.error("Galaxy systems route error:", error);
+        res.status(500).json({ error: "Failed to load galaxy systems" });
       }
     },
   );

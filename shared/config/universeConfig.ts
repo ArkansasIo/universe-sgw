@@ -5,7 +5,7 @@ export const UNIVERSE_CONFIG = {
   },
   
   size: {
-    galaxyCount: 256,
+    galaxyCount: 30,
     sectorsPerGalaxy: 64,
     systemsPerSector: 128,
     minPlanetsPerSystem: 0,

@@ -706,10 +706,12 @@ export const isAuthenticated: RequestHandler = async (req, res, next) => {
   if (isDevAuthBypassEnabled()) {
     try {
       const user = await ensureDevBypassUser();
-      (req.session as any).userId = user.id;
-      (req as any).user = { id: user.id };
-      logger.warn("AUTH", `Dev auth bypass granted for ${req.path}`);
-      return next();
+      if (user) {
+        (req.session as any).userId = user.id;
+        (req as any).user = { id: user.id };
+        logger.warn("AUTH", `Dev auth bypass granted for ${req.path}`);
+        return next();
+      }
     } catch (error) {
       logger.error("AUTH", "Failed to establish dev auth bypass session", {}, error);
     }

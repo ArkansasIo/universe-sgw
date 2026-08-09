@@ -260,6 +260,7 @@ function mapColorToBorderClass(color: string): string {
     '#4CAF50': 'border-t-green-500',
     '#D32F2F': 'border-t-red-600',
     '#FFD700': 'border-t-yellow-500',
+    '#00E0FF': 'border-t-cyan-400',
   };
   return colorMap[color] || 'border-t-blue-500';
 }

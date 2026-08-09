@@ -53,6 +53,9 @@ const TrainingCenter = lazy(() => import("@/pages/TrainingCenter"));
 const GroundCombat = lazy(() => import("@/pages/GroundCombat"));
 const CivilizationManagement = lazy(() => import("@/pages/CivilizationManagement"));
 const MegaStructures = lazy(() => import("@/pages/MegaStructures"));
+const MegaStructureDetail = lazy(() => import("@/pages/MegaStructureDetail"));
+const MegaStructureSubsystem = lazy(() => import("@/pages/MegaStructureSubsystem"));
+const DysonSphere = lazy(() => import("@/pages/DysonSphere"));
 const Achievements = lazy(() => import("@/pages/Achievements"));
 const Factions = lazy(() => import("@/pages/Factions"));
 const EmpireProgression = lazy(() => import("@/pages/EmpireProgression"));
@@ -104,6 +107,8 @@ const Missions = lazy(() => import("@/pages/Missions"));
 const CommerceHub = lazy(() => import("@/pages/CommerceHub"));
 const Population = lazy(() => import("@/pages/Population"));
 const Hazards = lazy(() => import("@/pages/Hazards"));
+const GalaxySystems = lazy(() => import("@/pages/GalaxySystems"));
+const GalaxySystemDetail = lazy(() => import("@/pages/GalaxySystemDetail"));
 
 function LoadingSplash() {
   return (
@@ -246,6 +251,8 @@ function RouterContent() {
       <Route path="/civilization-management" component={CivilizationManagement} />
       <Route path="/interstellar" component={Interstellar} />
       <Route path="/galaxy" component={Galaxy} />
+      <Route path="/galaxy-systems" component={GalaxySystems} />
+      <Route path="/galaxy-systems/:galaxy/:system" component={GalaxySystemDetail} />
       <Route path="/universe" component={Universe} />
       <Route path="/universe-generator" component={UniverseGenerator} />
       <Route path="/commander" component={Commander} />
@@ -263,6 +270,9 @@ function RouterContent() {
       <Route path="/expeditions" component={Expeditions} />
       <Route path="/blueprints" component={Blueprints} />
       <Route path="/megastructures" component={MegaStructures} />
+      <Route path="/megastructures/dyson" component={DysonSphere} />
+      <Route path="/megastructures/:id/subsystems/:subsystemId" component={MegaStructureSubsystem} />
+      <Route path="/megastructures/:id" component={MegaStructureDetail} />
       <Route path="/achievements" component={Achievements} />
       <Route path="/factions" component={Factions} />
       <Route path="/empire-progression" component={EmpireProgression} />

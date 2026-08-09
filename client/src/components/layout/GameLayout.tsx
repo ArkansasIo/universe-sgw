@@ -74,6 +74,8 @@ import {
   Eye,
   Briefcase,
   BarChart3,
+  List,
+  Sun,
 } from "lucide-react";
 
 interface NavItem {
@@ -341,7 +343,8 @@ const menuSections: MenuSection[] = [
           { href: "/colonies", icon: Home, label: "Colonies", description: "Manage colonization targets, colony slots, and expansion plans." },
           { href: "/population", icon: Users, label: "Population", description: "Manage population demographics, citizen class assignment, and growth." },
           { href: "/stations", icon: Satellite, label: "Stations", description: "Control orbital stations, outposts, and support platforms." },
-          { href: "/megastructures", icon: CircleDot, label: "Megastructures", description: "Develop late-game empire-scale construction projects." },
+          { href: "/megastructures", icon: CircleDot, label: "Megastructures", description: "Develop late-game empire-scale construction projects.", activePrefixes: ["/megastructures/"] },
+          { href: "/megastructures/dyson", icon: Sun, label: "Dyson Program", description: "Stellar harvesting sub-systems and Dyson sphere detail pages.", activePrefixes: ["/megastructures/dyson"] },
         ],
       },
       {
@@ -443,6 +446,7 @@ const menuSections: MenuSection[] = [
         description: "Navigate local, galactic, and generated universe views.",
         items: [
           { href: "/interstellar", icon: Sparkles, label: "Interstellar", description: "Explore broader interstellar travel and system links." },
+          { href: "/galaxy-systems", icon: List, label: "Galaxy Systems", description: "Browse every galaxy and its systems as a navigable list with detail subpages.", activePrefixes: ["/galaxy-systems/"] },
           { href: "/galaxy", icon: Globe, label: "Galaxy Map", description: "Browse sector positions, neighbors, and route planning." },
           { href: "/universe", icon: Orbit, label: "Universe View", description: "Inspect the full universe and long-range spatial context." },
           { href: "/universe-generator", icon: RefreshCw, label: "Universe Generator", description: "Generate and inspect procedural universe structures." },

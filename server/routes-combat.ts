@@ -101,7 +101,7 @@ function readCombatDeployment(travelState: unknown): {
   garrison: Record<string, number>;
   activeDefenses: Record<string, number>;
 } {
-  const rawTravelState =
+  const rawTravelState: Record<string, unknown> =
     travelState && typeof travelState === "object"
       ? { ...(travelState as Record<string, unknown>) }
       : { activeRoute: null, discoveredWormholes: [] };

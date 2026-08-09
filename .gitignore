@@ -99,6 +99,7 @@ dev-server.*
 *.sqlite
 *.sqlite3
 .postgres_data/
+.pgdata/
 
 # SSL certificates
 ssl/

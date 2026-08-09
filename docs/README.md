@@ -35,6 +35,8 @@ This folder contains the documentation set for Universe Empire Dominion.
 | `SHIP_FITTING_SYSTEM.md` | Ship fitting system (90+ modules, EVE-inspired) |
 | `INTERPLANETARY_POWER_GRID.md` | Power grid system (generation, transmission, AIC) |
 | `ORBITAL_DEFENSE_SYSTEM.md` | Orbital defense (satellites, platforms, fortresses) |
+| `themes/README.md` | Theme system — all 10 visual themes, registry, utilities |
+| `themes/QUANTUM_SINGULARITY_THEME.md` | Quantum Singularity theme spec (theme #10) |
 
 ---
 

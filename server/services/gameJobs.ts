@@ -1,6 +1,7 @@
 import { pool } from "../db";
 import { registerCronJob, recordGameTick, registerTimerFireHandler, startTimerPoller, cronLog, ensureCronTables, type CronJobResult } from "./cronService";
 import { GAME_SETTINGS } from "../config/gameSettings";
+import { registerExtendedGameJobs } from "./gameJobsExtended";
 
 const { intervals: INT, loginBonus: BONUS, resourceProduction: PROD } = GAME_SETTINGS;
 
@@ -511,6 +512,10 @@ export async function registerAllGameJobs(): Promise<void> {
   registerTimerFireHandler("battle_resolve", async (params) => {
     cronLog(`Battle resolve timer fired: ${JSON.stringify(params)}`, "timer");
   });
+
+  // Detailed handlers for the remaining stub jobs plus new jobs covering every
+  // game system (bank, auction, market, durability, life support, etc).
+  await registerExtendedGameJobs();
 
   startTimerPoller(5000);
 }
