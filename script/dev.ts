@@ -17,8 +17,30 @@ const basePort = Number.isFinite(preferredPort) && preferredPort > 0 ? preferred
 
 const pgDataDir = resolve(projectRoot, ".postgres_data");
 const pgLogFile = resolve(pgDataDir, "server.log");
+const pgBinDir = process.env.PG_BIN_DIR || (process.platform === "win32"
+  ? "C:\\Program Files\\PostgreSQL\\17\\bin"
+  : "");
+
+if (process.platform === "win32" && pgBinDir) {
+  process.env.PATH = `${pgBinDir};${process.env.PATH || ""}`;
+}
+
+function pgCommand(command: string): string {
+  if (process.platform === "win32" && pgBinDir) {
+    return resolve(pgBinDir, `${command}.exe`);
+  }
+  return command;
+}
+
+function localPgUser(): string {
+  // Windows USER/USERNAME is the OS account, not necessarily a PostgreSQL role.
+  return process.env.PGUSER || (process.platform === "win32" ? "postgres" : process.env.USER || process.env.USERNAME || "postgres");
+}
 
 function hasCommand(command: string): boolean {
+  if (process.platform === "win32" && pgBinDir) {
+    return existsSync(pgCommand(command));
+  }
   const check = spawnSync("sh", ["-lc", `command -v ${command}`], {
     stdio: "ignore",
     shell: false,
@@ -53,13 +75,14 @@ function isPortFree(port: number): Promise<boolean> {
 
 async function isPgReady(port: number): Promise<boolean> {
   return new Promise((resolve) => {
-    const check = spawn("pg_isready", ["-h", "localhost", "-p", String(port)], { stdio: "ignore" });
+    const check = spawn(pgCommand("pg_isready"), ["-h", "localhost", "-p", String(port)], { stdio: "ignore" });
     check.on("error", () => resolve(false));
     check.on("exit", (code) => resolve(code === 0));
   });
 }
 
 function ensurePgLockDirectory(): void {
+  if (process.platform === "win32") return;
   // PostgreSQL needs /run/postgresql for its lock file
   const lockDir = "/run/postgresql";
   try {
@@ -94,9 +117,9 @@ async function startLocalPostgres(): Promise<void> {
 
   if (!existsSync(pgDataDir)) {
     console.log("🔧 Initializing PostgreSQL data directory...");
-    const init = spawn("pg_ctl", ["init", "-D", pgDataDir], { stdio: "inherit" });
+    const init = spawn(pgCommand("initdb"), ["--no-locale", "--encoding=UTF8", "-U", localPgUser(), "-D", pgDataDir], { stdio: "inherit" });
     await new Promise((resolve, reject) => {
-      init.on("exit", (code) => (code === 0 ? resolve(undefined) : reject(new Error(`pg_ctl init failed: ${code}`))));
+      init.on("exit", (code) => (code === 0 ? resolve(undefined) : reject(new Error(`initdb failed: ${code}`))));
     });
 
     const pgConf = resolve(pgDataDir, "postgresql.conf");
@@ -106,7 +129,7 @@ async function startLocalPostgres(): Promise<void> {
   }
 
   console.log("🚀 Starting local PostgreSQL on port 15432...");
-  const pgStart = spawn("pg_ctl", ["start", "-D", pgDataDir, "-l", pgLogFile], {
+  const pgStart = spawn(pgCommand("pg_ctl"), ["start", "-D", pgDataDir, "-l", pgLogFile], {
     stdio: "inherit",
     detached: true,
   });
@@ -135,11 +158,13 @@ async function startLocalPostgres(): Promise<void> {
   throw new Error("PostgreSQL did not become ready in time");
 }
 
-async function createDatabaseIfNeeded(): Promise<void> {
+async function createDatabaseIfNeeded(port = 15432, user = localPgUser(), password?: string): Promise<void> {
+  const commandEnv = password ? { ...process.env, PGPASSWORD: password } : process.env;
   return new Promise((resolve, reject) => {
-    const check = spawn("psql", ["-h", "localhost", "-p", "15432", "-U", process.env.USER || process.env.USERNAME || "runner", "-d", "postgres", "-c", "SELECT 1 FROM pg_database WHERE datname = 'stellar_dominion';"], {
+    const check = spawn(pgCommand("psql"), ["-h", "localhost", "-p", String(port), "-U", user, "-d", "postgres", "-c", "SELECT 1 FROM pg_database WHERE datname = 'stellar_dominion';"], {
       stdio: ["ignore", "pipe", "pipe"],
       shell: false,
+      env: commandEnv,
     });
     let output = "";
     check.stdout?.on("data", (d) => (output += d));
@@ -151,8 +176,9 @@ async function createDatabaseIfNeeded(): Promise<void> {
         return;
       }
       console.log("🔧 Creating database stellar_dominion...");
-      const create = spawn("psql", ["-h", "localhost", "-p", "15432", "-U", process.env.USER || process.env.USERNAME || "runner", "-d", "postgres", "-c", "CREATE DATABASE stellar_dominion;"], {
+      const create = spawn(pgCommand("psql"), ["-h", "localhost", "-p", String(port), "-U", user, "-d", "postgres", "-c", "CREATE DATABASE stellar_dominion;"], {
         stdio: "inherit",
+        env: commandEnv,
       });
       create.on("exit", (code) => {
         if (code === 0) {
@@ -175,15 +201,43 @@ async function findAvailablePort(startPort: number, maxChecks = 25): Promise<num
   return startPort;
 }
 
+async function applyDatabaseSchema(): Promise<void> {
+  console.log("🔧 Synchronizing database schema...");
+  const command = process.platform === "win32" ? "npx.cmd" : "npx";
+  const push = spawn(command, ["drizzle-kit", "push", "--force"], {
+    stdio: "inherit",
+    shell: process.platform === "win32",
+    env: process.env,
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    push.on("error", reject);
+    push.on("exit", (code) => {
+      if (code === 0) {
+        console.log("✅ Database schema synchronized");
+        resolve();
+      } else {
+        reject(new Error(`drizzle-kit push failed with code ${code}`));
+      }
+    });
+  });
+}
+
 async function startDev() {
   // Start local PostgreSQL if DATABASE_URL points to Neon or not set
-  const dbUrl = process.env.DATABASE_URL || "";
-  if (!dbUrl || dbUrl.includes("neon.tech")) {
+  const configuredDbUrl = process.env.DATABASE_URL || "";
+  const configuredLocalPort = configuredDbUrl.includes("localhost:5432") ? 5432 : null;
+  const configuredDbReady = configuredLocalPort ? await isPgReady(configuredLocalPort) : false;
+  const dbUrl = configuredDbReady ? configuredDbUrl : configuredDbUrl.replace(/localhost:5432/, "localhost:15432");
+  if (configuredDbReady && configuredDbUrl.includes("localhost:5432")) {
+    const parsed = new URL(configuredDbUrl);
+    await createDatabaseIfNeeded(5432, decodeURIComponent(parsed.username), decodeURIComponent(parsed.password));
+  }
+  if (!dbUrl || dbUrl.includes("neon.tech") || (configuredLocalPort !== null && !configuredDbReady)) {
     if (canBootstrapLocalPostgres()) {
       await startLocalPostgres();
       await createDatabaseIfNeeded();
-      const pgUser = process.env.USER || process.env.USERNAME || "runner";
-      process.env.DATABASE_URL = `postgresql://${pgUser}@localhost:15432/stellar_dominion`;
+      process.env.DATABASE_URL = `postgresql://${localPgUser()}@localhost:15432/stellar_dominion`;
     } else if (!dbUrl) {
       const dockerFallbackUrl =
         process.env.LOCAL_DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/stellar_dominion";
@@ -192,18 +246,21 @@ async function startDev() {
     }
   }
 
+  await applyDatabaseSchema();
+
   const selectedPort = await findAvailablePort(basePort);
   if (selectedPort !== basePort) {
     console.warn(`Port ${basePort} is already in use. Falling back to port ${selectedPort}.`);
   }
 
-  const command = `tsx server/index.ts`;
+  const command = process.execPath;
+  const args = [resolve(projectRoot, "node_modules/tsx/dist/cli.mjs"), "server/index.ts"];
 
   console.log("Starting full-stack development server...");
 
-  const child = spawn(command, {
+  const child = spawn(command, args, {
     stdio: "inherit",
-    shell: true,
+    shell: false,
     env: {
       ...process.env,
       NODE_ENV: process.env.NODE_ENV ?? "development",

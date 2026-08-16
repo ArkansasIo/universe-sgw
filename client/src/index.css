@@ -68,6 +68,57 @@ body {
   min-height: 100vh;
 }
 
+/* Shared dark-console overrides keep legacy page utility classes readable
+   without requiring every feature page to be rewritten. */
+:root[data-sd-theme="black-style"] body,
+:root[data-sd-theme="stargate"] body {
+  background:
+    radial-gradient(circle at 78% 8%, rgba(77, 163, 255, 0.12), transparent 28rem),
+    linear-gradient(135deg, #030b16 0%, #07121e 46%, #000000 100%);
+}
+
+:root[data-sd-theme="black-style"] .bg-white,
+:root[data-sd-theme="stargate"] .bg-white {
+  background-color: #09172a;
+}
+
+:root[data-sd-theme="black-style"] .sd-topbar,
+:root[data-sd-theme="stargate"] .sd-topbar,
+:root[data-sd-theme="black-style"] .sd-sidebar-shell,
+:root[data-sd-theme="stargate"] .sd-sidebar-shell {
+  background-color: rgba(9, 23, 42, 0.92);
+  border-color: #1b405b;
+}
+
+:root[data-sd-theme="black-style"] .bg-slate-50,
+:root[data-sd-theme="stargate"] .bg-slate-50 {
+  background-color: #0b1e34;
+}
+
+:root[data-sd-theme="black-style"] .border-slate-200,
+:root[data-sd-theme="stargate"] .border-slate-200 {
+  border-color: #1b405b;
+}
+
+:root[data-sd-theme="black-style"] .text-slate-900,
+:root[data-sd-theme="stargate"] .text-slate-900 {
+  color: #f0ffff;
+}
+
+:root[data-sd-theme="black-style"] .text-slate-800,
+:root[data-sd-theme="stargate"] .text-slate-800 {
+  color: #d9efff;
+}
+
+:root[data-sd-theme="black-style"] .text-slate-700,
+:root[data-sd-theme="stargate"] .text-slate-700,
+:root[data-sd-theme="black-style"] .text-slate-600,
+:root[data-sd-theme="stargate"] .text-slate-600,
+:root[data-sd-theme="black-style"] .text-slate-500,
+:root[data-sd-theme="stargate"] .text-slate-500 {
+  color: #bad4e8;
+}
+
 html[data-touch-ui="true"] button,
 html[data-touch-ui="true"] [role="button"],
 html[data-touch-ui="true"] a,

@@ -998,7 +998,7 @@ export default function GameLayout({ children }: { children: React.ReactNode }) 
   }, [isMobile]);
 
   const displayPreferences = {
-    themePreset: playerOptions?.display?.themePreset ?? "og-white",
+    themePreset: playerOptions?.display?.themePreset ?? "black-style",
     compactView: Boolean(playerOptions?.display?.compactView),
     showAnimations: playerOptions?.display?.showAnimations ?? true,
     showResourceRates: playerOptions?.display?.showResourceRates ?? true,
@@ -1152,7 +1152,7 @@ export default function GameLayout({ children }: { children: React.ReactNode }) 
   return (
     <div className={cn(
       "sd-game-shell relative isolate min-h-screen overflow-hidden flex flex-col",
-      displayPreferences.themePreset === "og-white" ? "bg-slate-50 text-slate-900" : "bg-slate-950/80 text-slate-100",
+      displayPreferences.themePreset === "og-white" ? "bg-slate-50 text-slate-900" : "bg-[#07121e] text-[#f0ffff]",
       touchMode && "touch-manipulation",
       !displayPreferences.showAnimations && "motion-reduce",
     )}>
@@ -1201,7 +1201,7 @@ export default function GameLayout({ children }: { children: React.ReactNode }) 
                 </SheetContent>
               </Sheet>
             )}
-           <div className="w-10 h-10 bg-primary rounded flex items-center justify-center shadow-sm shrink-0">
+           <div className="w-10 h-10 bg-primary rounded flex items-center justify-center shadow-[0_0_18px_rgba(98,221,255,0.35)] shrink-0">
              <Rocket className="text-white w-6 h-6" />
            </div>
            <div>

@@ -81,6 +81,31 @@
   --sd-resource-alloy: #81c784;
 }
 
+/* Stargate command-console palette. The dark preset is intentionally the
+   default for new commanders, while the other presets remain available. */
+:root[data-sd-theme="black-style"],
+:root[data-sd-theme="stargate"] {
+  --background: 214 62% 7%;
+  --foreground: 193 100% 97%;
+  --card: 214 56% 11%;
+  --card-foreground: 193 100% 97%;
+  --popover: 214 56% 11%;
+  --popover-foreground: 193 100% 97%;
+  --primary: 205 100% 65%;
+  --primary-foreground: 214 62% 7%;
+  --secondary: 210 48% 18%;
+  --secondary-foreground: 193 100% 97%;
+  --muted: 211 45% 16%;
+  --muted-foreground: 207 43% 72%;
+  --accent: 188 100% 69%;
+  --accent-foreground: 214 62% 7%;
+  --destructive: 0 72% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 209 44% 25%;
+  --input: 209 44% 25%;
+  --ring: 188 100% 69%;
+}
+
 :root[data-sd-theme="imperial-gold"] {
   --sd-theme-surface: dark;
   --sd-text-primary: #fff5d6;

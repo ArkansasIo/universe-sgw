@@ -48,6 +48,8 @@ function getPlayerOptionsKey(userId: string) {
 }
 
 function mergePlayerOptions(value: any) {
+  const incomingNotifications = value?.notifications || {};
+  const incomingSound = value?.sound || {};
   const incomingPrivacy = value?.privacy || {};
   const incomingDisplay = value?.display || {};
   const normalizedThemePreset =
@@ -62,14 +64,14 @@ function mergePlayerOptions(value: any) {
   };
 
   return {
-    notifications: { ...DEFAULT_PLAYER_OPTIONS.notifications, ...(value?.notifications || {}) },
+    notifications: { ...DEFAULT_PLAYER_OPTIONS.notifications, ...incomingNotifications },
     display: {
       ...DEFAULT_PLAYER_OPTIONS.display,
       ...incomingDisplay,
       darkMode: normalizedThemePreset !== "og-white",
       themePreset: normalizedThemePreset,
     },
-    sound: { ...DEFAULT_PLAYER_OPTIONS.sound, ...(value?.sound || {}) },
+    sound: { ...DEFAULT_PLAYER_OPTIONS.sound, ...incomingSound },
     privacy: { ...DEFAULT_PLAYER_OPTIONS.privacy, ...normalizedPrivacy },
   };
 }
@@ -94,7 +96,16 @@ export function registerSettingsRoutes(app: Express) {
     try {
       const userId = getUserId(req);
       const existing = await storage.getSetting(getPlayerOptionsKey(userId));
-      const merged = mergePlayerOptions({ ...(existing?.value || {}), ...(req.body || {}) });
+      const current: any = existing?.value || {};
+      const incoming: any = req.body || {};
+      const merged = mergePlayerOptions({
+        ...current,
+        ...incoming,
+        notifications: { ...(current.notifications || {}), ...(incoming.notifications || {}) },
+        display: { ...(current.display || {}), ...(incoming.display || {}) },
+        sound: { ...(current.sound || {}), ...(incoming.sound || {}) },
+        privacy: { ...(current.privacy || {}), ...(incoming.privacy || {}) },
+      });
       const setting = await storage.setSetting(
         getPlayerOptionsKey(userId),
         merged,

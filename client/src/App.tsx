@@ -1,5 +1,5 @@
 import { Switch, Route } from "wouter";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { Component, lazy, Suspense, useEffect, useRef, useState } from "react";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -140,6 +140,33 @@ function LoadingSplash() {
       </div>
     </div>
   );
+}
+
+class RouteErrorBoundary extends Component<
+  { children: React.ReactNode },
+  { error: Error | null }
+> {
+  state = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="min-h-screen bg-slate-950 px-6 py-16 text-center text-slate-100">
+          <h1 className="text-2xl font-bold">Settings could not be loaded</h1>
+          <p className="mx-auto mt-3 max-w-xl text-sm text-slate-400">Refresh the page to retry loading this screen.</p>
+          <button type="button" className="mt-6 rounded-md bg-cyan-500 px-4 py-2 font-semibold text-slate-950" onClick={() => window.location.reload()}>
+            Reload Settings
+          </button>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
 }
 
 function RouterContent() {
@@ -331,9 +358,11 @@ function RouterContent() {
 function Router() {
   return (
     <GameProvider>
-      <Suspense fallback={<LoadingSplash />}>
-        <RouterContent />
-      </Suspense>
+      <RouteErrorBoundary>
+        <Suspense fallback={<LoadingSplash />}>
+          <RouterContent />
+        </Suspense>
+      </RouteErrorBoundary>
     </GameProvider>
   );
 }

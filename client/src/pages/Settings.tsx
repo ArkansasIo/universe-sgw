@@ -240,9 +240,9 @@ export default function Settings() {
       emailNotifications: true,
   });
   
-  const [displaySettings, setDisplaySettings] = useState({
-    darkMode: false,
-    themePreset: "og-white" as ThemePreset,
+   const [displaySettings, setDisplaySettings] = useState({
+     darkMode: true,
+     themePreset: "black-style" as ThemePreset,
     compactView: false,
     showAnimations: true,
     showResourceRates: true,
@@ -338,25 +338,29 @@ export default function Settings() {
       }
       lastPlayerOptionsKeyRef.current = nextPlayerOptionsKey;
 
-      setNotifications(playerOptions.notifications);
-      setDisplaySettings({
-         darkMode: playerOptions.display.themePreset !== "og-white",
-         themePreset: playerOptions.display.themePreset || "og-white",
-         compactView: playerOptions.display.compactView,
-         showAnimations: playerOptions.display.showAnimations,
-         showResourceRates: playerOptions.display.showResourceRates,
-         language: playerOptions.display.language,
-         timeFormat: playerOptions.display.timeFormat,
-         numberFormat: playerOptions.display.numberFormat,
-         deviceProfile: playerOptions.display.deviceProfile,
-         mobileOptimized: playerOptions.display.mobileOptimized,
-         touchControls: playerOptions.display.touchControls,
-         touchTargetSize: playerOptions.display.touchTargetSize,
-         browserWidth: playerOptions.display.browserWidth,
-         stickyMobileBars: playerOptions.display.stickyMobileBars,
-      });
-      setSoundSettings(playerOptions.sound);
-      setPrivacySettings(playerOptions.privacy);
+       const display = playerOptions.display;
+
+       if (playerOptions.notifications) {
+          setNotifications(playerOptions.notifications);
+       }
+       setDisplaySettings({
+          darkMode: display?.themePreset !== "og-white",
+          themePreset: display?.themePreset || "black-style",
+          compactView: display?.compactView ?? false,
+          showAnimations: display?.showAnimations ?? true,
+          showResourceRates: display?.showResourceRates ?? true,
+          language: display?.language ?? "en",
+          timeFormat: display?.timeFormat ?? "24h",
+          numberFormat: display?.numberFormat ?? "comma",
+          deviceProfile: display?.deviceProfile ?? "auto",
+          mobileOptimized: display?.mobileOptimized ?? true,
+          touchControls: display?.touchControls ?? true,
+          touchTargetSize: display?.touchTargetSize ?? "comfortable",
+          browserWidth: display?.browserWidth ?? "standard",
+          stickyMobileBars: display?.stickyMobileBars ?? true,
+       });
+       if (playerOptions.sound) setSoundSettings(playerOptions.sound);
+       if (playerOptions.privacy) setPrivacySettings(playerOptions.privacy);
    }, [playerOptions]);
 
    useEffect(() => {
@@ -450,10 +454,11 @@ export default function Settings() {
             privacy: privacySettings,
          }),
       }),
-      onSuccess: () => {
-         toast({ title: "Options saved", description: "Settings menus and submenus updated." });
-         queryClient.invalidateQueries({ queryKey: ["player-options"] });
-      },
+       onSuccess: (savedOptions) => {
+          toast({ title: "Options saved", description: "Settings menus and submenus updated." });
+          queryClient.setQueryData(["player-options"], savedOptions);
+          queryClient.invalidateQueries({ queryKey: ["player-options"] });
+       },
       onError: (error: Error) => {
          toast({ title: "Unable to save options", description: error.message, variant: "destructive" });
       },

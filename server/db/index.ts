@@ -12,6 +12,12 @@ export const pool = new Pool({
   connectionTimeoutMillis: 5000,
 });
 
+// Idle clients can emit connection errors after startup; without a pool-level
+// listener node treats those errors as uncaught exceptions and terminates the server.
+pool.on('error', (error) => {
+  console.error('❌ Database pool connection error:', error.message);
+});
+
 // Test connection and log status
 pool.connect()
   .then(client => {
